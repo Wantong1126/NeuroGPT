@@ -1,0 +1,1 @@
+# platform safety hook interface
