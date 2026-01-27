@@ -1,1 +1,4 @@
-  # disclaimers by mode
+disclaimers:
+  platform: "This is not medical advice..."
+  modes:
+    B: "Mode B is a wellbeing assistant, not therapy or diagnosis..."

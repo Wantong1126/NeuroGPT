@@ -1,1 +1,4 @@
 # model backend settings (stub)
+provider: "stub"
+model: "stub"
+temperature: 0.2

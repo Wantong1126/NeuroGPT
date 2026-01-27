@@ -1,1 +1,3 @@
- # which modes are enabled + defaults
+default_mode: "B"
+enabled_modes:
+  - "B"
