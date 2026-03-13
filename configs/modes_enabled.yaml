@@ -1,3 +1,2 @@
-default_mode: "B"
-enabled_modes:
-  - "B"
+default_mode: null
+enabled_modes: []

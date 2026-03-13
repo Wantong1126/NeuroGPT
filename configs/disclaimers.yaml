@@ -1,4 +1,4 @@
 disclaimers:
   platform: "This is not medical advice..."
   modes:
-    B: "Mode B is a wellbeing assistant, not therapy or diagnosis..."
+    B_deprecated: "Deprecated Mode B archive: this wellbeing assistant was not therapy or diagnosis."

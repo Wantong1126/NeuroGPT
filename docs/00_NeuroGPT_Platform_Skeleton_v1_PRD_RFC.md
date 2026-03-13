@@ -15,7 +15,7 @@ NeuroGPT (working name)
 ### Product Goal
 Build a **mode-based** conversational AI platform (cloud-hosted, text-only) that can safely host multiple specialized assistants (“modes”) under one shared platform:
 - **Mode A (Medical Neuro-Health for older adults/caregivers)** — safety-first triage + explanations
-- **Mode B (Identity, Relationships, Urban Wellbeing — Lite)** — structured reflective dialogue (no retrieval in v1)
+- **Mode B (Identity, Relationships, Urban Wellbeing — Lite)** — structured reflective dialogue (archived/deprecated in this repo)
 - **Mode C (Women’s cycle/hormone wellbeing + medical safety)** — future mode (not implemented in v1)
 
 This platform prioritizes **safety, clarity, and timing** over clinical authority or completeness.
@@ -146,7 +146,7 @@ Do not proceed to later steps until each earlier step is understood and validate
 4. Implement config loader + prompt loader
 5. Implement safety hook (generic interface; mode-specific rules live in modes)
 6. Implement memory hook (summary + last turns)
-7. Add minimal CLI/demo runner to exercise one mode (Mode B v1 recommended)
+7. Add minimal CLI/demo runner to exercise one mode (do not use archived Mode B as the example)
 
 ---
 
