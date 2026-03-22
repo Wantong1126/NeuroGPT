@@ -1,0 +1,273 @@
+# NeuroGPT v2 — Risk Stratification Rules
+# =============================================
+# These rules are the deterministic core of Step 3.
+# Order matters: HIGH rules are checked first.
+# Each rule has: id, name, risk_level, action, description
+# Rules return MATCH if ALL conditions in `conditions` are satisfied.
+
+version: "2.0"
+
+# ─────────────────────────────────────────────
+# HIGH RISK — Call emergency services immediately
+# ─────────────────────────────────────────────
+high_risk:
+
+  - id: "STROKE_BEFAST"
+    name: "BE-FAST stroke criteria met"
+    description: "Sudden onset + one-sided weakness + speech difficulty"
+    conditions:
+      onset: "sudden"
+      requires_all: true
+      checks:
+        - laterality: "one_side"
+        - OR: [slurred_speech, word_finding_difficulty, no_clear_speech]
+
+  - id: "SUDDEN_FACIAL_DROOP"
+    name: "Sudden facial droop"
+    description: "Sudden one-sided facial droop is a classic stroke sign"
+    conditions:
+      onset: "sudden"
+      laterality: "one_side"
+      requires_all: false
+      checks:
+        - facial_droop: true
+        - OR: [slurred_speech, arm_weakness_one_side]
+
+  - id: "SUDDEN_SPEECH"
+    name: "Sudden speech disturbance"
+    description: "New-onset slurred or absent speech"
+    conditions:
+      onset: "sudden"
+      requires_all: false
+      checks:
+        - slurred_speech: true
+        - OR: [word_finding_difficulty, inability_to_speak, confusion_language]
+
+  - id: "SEIZURE"
+    name: "Seizure with neurological symptoms"
+    description: "Seizure event, especially with postictal confusion or focal features"
+    conditions:
+      requires_all: false
+      checks:
+        - seizure: true
+        - OR: [postictal_confusion, loss_of_consciousness, incontinence, focal_movement]
+
+  - id: "SUDDEN_SEVERE_HEADACHE"
+    name: "Sudden thunderclap headache"
+    description: "Sudden worst headache of life with neurological signs"
+    conditions:
+      onset: "sudden"
+      requires_all: false
+      checks:
+        - severe_headache: true
+        - OR: [focal_numbness, vision_loss, weakness_one_side, confusion]
+
+  - id: "ACUTE_CONFUSION"
+    name: "Acute confusional state / delirium"
+    description: "Sudden change in mental status in elderly is a medical emergency"
+    conditions:
+      onset: "sudden"
+      requires_all: false
+      checks:
+        - acute_confusion: true
+        - OR: [disorientation, altered_consciousness, fluctuating_awareness]
+
+  - id: "HEAD_INJURY_NEURO"
+    name: "Head injury with neurological symptoms"
+    description: "Head trauma followed by any neurological symptoms"
+    conditions:
+      requires_all: false
+      checks:
+        - head_injury: true
+        - OR: [confusion, loss_of_consciousness, weakness, vision_loss, seizure, severe_headache]
+
+  - id: "SUDDEN_VISION_LOSS"
+    name: "Sudden monocular or binocular vision loss"
+    description: "Sudden vision loss can indicate stroke or giant cell arteritis"
+    conditions:
+      onset: "sudden"
+      requires_all: false
+      checks:
+        - vision_loss: true
+        - OR: [eye_pain, headache, scalp_tenderness, jaw_claudication]
+
+  - id: "ONE_SIDE_WEAKNESS"
+    name: "New one-sided weakness"
+    description: "Isolated sudden unilateral weakness"
+    conditions:
+      onset: "sudden"
+      laterality: "one_side"
+      requires_all: true
+      checks:
+        - weakness_one_side: true
+
+  - id: "LOSS_OF_CONSCIOUSNESS"
+    name: "Loss of consciousness with neuro symptoms"
+    description: "Fainting / LOC with neurological symptoms present"
+    conditions:
+      requires_all: false
+      checks:
+        - loss_of_consciousness: true
+        - OR: [confusion, weakness, speech_disturbance, seizure_after]
+
+# ─────────────────────────────────────────────
+# MEDIUM RISK — Urgent medical review within 24-48h
+# ─────────────────────────────────────────────
+medium_risk:
+
+  - id: "PROGRESSIVE_GAIT"
+    name: "New progressive gait instability"
+    description: "Gradually worsening walking difficulty or balance in elderly"
+    conditions:
+      onset: "gradual"
+      requires_all: true
+      checks:
+        - gait_difficulty: true
+        - progression: ["worsening", "first_time"]
+
+  - id: "RECURRENT_FALLS"
+    name: "Recurrent unexplained falls"
+    description: "More than one fall in 6 months without clear cause"
+    conditions:
+      requires_all: false
+      checks:
+        - falls_present: true
+        - OR: [gait_difficulty, near_falls, fear_of_falling, injury_from_fall]
+
+  - id: "COGNITIVE_DECLINE_ACUTE"
+    name: "New or worsening cognitive decline"
+    description: "Noticeable cognitive change over weeks to months"
+    conditions:
+      requires_all: true
+      checks:
+        - memory_concern: true
+        - progression: ["worsening", "first_time"]
+        - OR: [word_finding_difficulty, disorientation, difficulty_with_tasks]
+
+  - id: "FOCAL_NUMBREF"
+    name: "New focal numbness or tingling"
+    description: "New unilateral sensory symptoms without acute onset"
+    conditions:
+      onset: "gradual"
+      laterality: "one_side"
+      requires_all: true
+      checks:
+        - focal_numbness: true
+
+  - id: "TREMOR_PROGRESSIVE"
+    name: "New or worsening tremor"
+    description: "Progressive tremor affecting daily activities"
+    conditions:
+      requires_all: false
+      checks:
+        - tremor_present: true
+        - OR: [stiffness, gait_difficulty, falls_present, slowing_of_movement]
+
+  - id: "HALLUCINATIONS"
+    name: "Visual hallucinations in elderly"
+    description: "New visual hallucinations — can indicate Lewy body dementia or Parkinson's"
+    conditions:
+      onset: "gradual"
+      requires_all: false
+      checks:
+        - hallucinations: true
+        - OR: [sleep_disturbance, parkinsonism_signs, cognitive_fluctuations]
+
+  - id: "PERSONALITY_BEHAVIOR_CHANGE"
+    name: "Rapid personality or behavioral change"
+    description: "Sudden personality change without psychiatric history"
+    conditions:
+      requires_all: false
+      checks:
+        - personality_change: true
+        - OR: [apathy, disinhibition, paranoid_ideation]
+
+  - id: "PERSISTENT_HEADACHE_NEURO"
+    name: "Persistent headache with neurological features"
+    description: "Headache plus neurological symptoms, not sudden thunderclap"
+    conditions:
+      requires_all: false
+      checks:
+        - severe_headache: true
+        - OR: [vision_changes, weakness, numbness, nausea_vomiting, neck_stiffness]
+
+  - id: "URINARY_INCONTINENCE_NEURO"
+    name: "Urinary incontinence with neurological symptoms"
+    description: "Sudden incontinence with leg weakness or gait change"
+    conditions:
+      requires_all: false
+      checks:
+        - incontinence: true
+        - OR: [gait_difficulty, leg_weakness, back_pain]
+
+  - id: "SLEEP_BEHAVIOR_DISORDER"
+    name: "REM sleep behavior disorder"
+    description: "Acting out dreams — linked to alpha-synucleinopathies"
+    conditions:
+      requires_all: false
+      checks:
+        - sleep_disturbance: true
+        - OR: [dream_enactment, shouting_in_sleep, violent_movements_during_sleep]
+
+# ─────────────────────────────────────────────
+# LOW RISK — Routine or educational
+# ─────────────────────────────────────────────
+low_risk:
+
+  - id: "CHRONIC_STABLE_MILD"
+    name: "Chronic stable mild symptoms"
+    description: "Long-standing symptoms without red flags or progression"
+    conditions:
+      onset: "chronic"
+      requires_all: true
+      checks:
+        - progression: "stable"
+
+  - id: "AGE_RELATED_MEMORY"
+    name: "Age-appropriate memory concern"
+    description: "Mild memory changes without functional impairment"
+    conditions:
+      requires_all: true
+      checks:
+        - memory_concern: true
+        - progression: "stable"
+        - absence_of: [word_finding_difficulty, disorientation, difficulty_with_tasks]
+
+  - id: "OCCASIONAL_DIZZINESS"
+    name: "Occasional dizziness without neuro signs"
+    description: "Dizziness with no focal neurological findings"
+    conditions:
+      requires_all: false
+      checks:
+        - dizziness_lightheadedness: true
+        - absence_of: [weakness_one_side, vision_loss, slurred_speech, gait_difficulty]
+
+  - id: "TREMOR_STABLE_ELDERLY"
+    name: "Stable tremor in elderly"
+    description: "Long-standing tremor without disability"
+    conditions:
+      requires_all: true
+      checks:
+        - tremor_present: true
+        - progression: "stable"
+        - absence_of: [gait_difficulty, falls_present, stiffness]
+
+  - id: "SLEEP_AGE_MINOR"
+    name: "Minor sleep changes"
+    description: "Age-related sleep pattern changes without daytime dysfunction"
+    conditions:
+      requires_all: true
+      checks:
+        - sleep_disturbance: true
+        - absence_of: [daytime_functional_impact, hallucinations, movement_during_sleep]
+
+# ─────────────────────────────────────────────
+# UNKNOWN — Needs more information
+# ─────────────────────────────────────────────
+unknown:
+
+  - id: "INSUFFICIENT_INFO"
+    name: "Cannot determine risk level"
+    description: "Not enough information to stratify — ask targeted follow-up"
+    conditions:
+      onset: "unknown"
