@@ -1,0 +1,117 @@
+# NeuroGPT v2 — Action Tier Definitions
+# Maps RiskLevel + ActionTier to concrete, specific action steps
+# These are shown to the user. Every action must be specific — not vague.
+
+version: "2.0"
+
+# ─────────────────────────────────────────────
+# HIGH RISK — Call emergency services
+# ─────────────────────────────────────────────
+call_ambulance:
+  urgency_label: "⚠️ 立即行动"
+  urgency_color: "red"
+  urgency_statement: "这些症状需要立即就医。请马上采取行动。"
+  primary_action:
+    step: 1
+    action: "立即拨打 120（或当地急救电话）"
+    reason: "这些症状可能表示中风或其他紧急情况。时间就是大脑，每分钟都至关重要。"
+    what_to_say: >
+      "我拨打电话是因为：我的家人出现了突然的（描述症状：例如：说话含糊、一侧手臂无力、面部下垂）。
+      症状开始于大约（时间）。请派救护车。"
+  secondary_actions:
+    - step: 2
+      action: "不要驾车去医院"
+      reason: "症状可能突然加重，独自去医院非常危险。"
+      what_to_say: ""
+    - step: 3
+      action: "记录症状开始的时间"
+      reason: "医生需要知道症状是什么时候开始的，这个信息会影响治疗决策。"
+      what_to_say: ""
+    - step: 4
+      action: "让患者保持安静，不要自行服用止痛药或阿司匹林"
+      reason: "在明确诊断前，不要给药，以免加重情况。"
+      what_to_say: ""
+
+go_to_er:
+  urgency_label: "🚨 立即去急诊"
+  urgency_color: "orange"
+  urgency_statement: "这些症状需要今天去急诊。不要再等待观察。"
+  primary_action:
+    step: 1
+    action: "今天立即去急诊（或挂急诊号）"
+    reason: "这些症状可能正在发展，早期评估可以显著改善预后。"
+    what_to_say: >
+      "我需要看急诊，因为我的家人出现了（描述症状），症状在过去（时间范围）出现，
+      并且（好转/没有好转/加重）。"
+  secondary_actions:
+    - step: 2
+      action: "提前告诉急诊分诊台这些症状"
+      reason: "让医疗团队尽快了解情况。"
+      what_to_say: "我担心这可能是神经系统的问题，症状包括（描述最主要的症状）。"
+    - step: 3
+      action: "带上所有正在服用的药物清单"
+      reason: "帮助急诊医生快速了解用药历史，避免药物相互作用。"
+
+# ─────────────────────────────────────────────
+# MEDIUM RISK — See doctor within 24-48h
+# ─────────────────────────────────────────────
+
+see_doctor_urgent:
+  urgency_label: "⏰ 尽快就医（48小时内）"
+  urgency_color: "yellow"
+  urgency_statement: "这些症状不应该等待太久。建议在48小时内看医生。"
+  primary_action:
+    step: 1
+    action: "在 48 小时内约见全科医生或神经内科"
+    reason: "这些症状需要专业评估，不应该观察等待超过两天。"
+    what_to_say: >
+      "我需要预约，因为我的家人出现了（描述症状），持续了（时间）。
+      我们担心可能与神经系统有关。"
+  secondary_actions:
+    - step: 2
+      action: "记录症状日记"
+      reason: "帮助医生了解症状模式和进展。记录：什么时间出现、频率、加重/缓解因素。"
+      what_to_say: ""
+    - step: 3
+      action: "列出所有症状和concern"
+      reason: "看诊时间有限，准备好问题清单能让评估更高效。"
+      what_to_say: ""
+
+# ─────────────────────────────────────────────
+# LOW RISK — Routine care
+# ─────────────────────────────────────────────
+
+schedule_routine:
+  urgency_label: "📅 常规门诊"
+  urgency_color: "green"
+  urgency_statement: "目前不需要紧急就医，但建议与医生讨论这些症状。"
+  primary_action:
+    step: 1
+      action: "在下次常规门诊时告诉医生这些症状"
+      reason: "即使不紧急，也让医生了解完整情况很重要。"
+      what_to_say: "我最近注意到（描述症状），想请医生评估一下。"
+  secondary_actions:
+    - step: 2
+      action: "观察症状记录变化"
+      reason: "如果症状加重或出现新的症状，及时告知医生。"
+      what_to_say: ""
+
+monitor:
+  urgency_label: "👀 观察记录"
+  urgency_color: "blue"
+  urgency_statement: "目前不需要立即就医，但建议持续观察。"
+  primary_action:
+    step: 1
+      action: "记录观察日记（持续2-4周）"
+      reason: "观察症状是否有变化、频率或严重程度加重。"
+      what_to_say: ""
+
+educate:
+  urgency_label: "💡 了解信息"
+  urgency_color: "grey"
+  urgency_statement: "这些症状通常是正常衰老的一部分，以下信息可能有帮助。"
+  primary_action:
+    step: 1
+      action: "阅读症状相关知识（见下方科普内容）"
+      reason: "了解症状的原因和应对方式。"
+      what_to_say: ""

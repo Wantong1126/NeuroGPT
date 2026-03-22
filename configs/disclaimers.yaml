@@ -1,4 +1,31 @@
+# NeuroGPT v2 — Medical Disclaimers
+# Used in EVERY health-related response.
+# Do NOT hard-code in LLM prompts — load from here.
+
+version: "2.0"
+
 disclaimers:
-  platform: "This is not medical advice..."
-  modes:
-    B: "Mode B is a wellbeing assistant, not therapy or diagnosis..."
+  general:
+    full: >
+      ⚕️ **免责声明**：NeuroGPT 不是医疗专业人士，不能提供诊断、医疗建议或治疗方案。
+      本工具仅供健康教育目的。如果您或您的家人出现任何紧急或令人担忧的症状，
+      请立即就医或联系当地急救服务。
+    short: >
+      ⚕️ **注意**：NeuroGPT 不替代专业医疗建议。如有疑问，请就医。
+
+  high_risk:
+    prefix: >
+      ⚠️ **重要提示**：基于您描述的症状，我们建议您立即采取行动。
+      以下内容仅供教育参考，不能替代医疗评估。
+    emergency_append: >
+      如果您目前正在经历这些症状，请立即拨打 120 / 999 / 911。
+
+  medium_risk:
+    prefix: >
+      以下建议供您参考。请尽快与医疗专业人士讨论这些症状。
+
+  caregiver:
+    full: >
+      📋 **照护者须知**：NeuroGPT 提供的信息仅供教育目的。
+      具体的医疗决策应由合格的医疗专业人员做出。
+      如果您担心家人的健康，请鼓励并支持他们尽快就医。
