@@ -1,0 +1,861 @@
+# NeuroGPT v2 — Technical Execution Plan
+
+## 1. Purpose of This File
+
+This is the **single technical execution file** for NeuroGPT v2.
+
+Its job is to turn the product definition into an **orderly engineering plan** that can be executed step by step.
+
+This file should be used to:
+
+* reorganize the current messy repository,
+* define what each module does,
+* define what is not yet built,
+* define the implementation order,
+* and give precise work packages to coding agents.
+
+This is **not** a brainstorming document.
+It is an execution document.
+
+---
+
+## 2. Product-to-Engineering Translation
+
+The product goal is:
+
+> Help older adults and caregivers take possible brain-health symptoms more seriously and move toward timely help-seeking.
+
+Engineering must therefore implement the following product loop:
+
+1. User describes a symptom or change.
+2. System reduces ambiguity.
+3. System determines how concerning the pattern may be.
+4. System explains seriousness in plain language.
+5. System addresses hesitation or minimization.
+6. System gives a concrete next step.
+7. System optionally generates a caregiver summary.
+
+This is the entire technical backbone of the MVP.
+
+---
+
+## 3. Core Engineering Principle
+
+Do **not** build a general chatbot.
+Do **not** build a broad platform.
+Do **not** start with full RAG.
+
+Build a **structured symptom-to-action pipeline**.
+
+The pipeline should be:
+
+* deterministic where safety matters,
+* LLM-assisted where wording and empathy matter,
+* modular enough to grow later,
+* but simple enough to finish.
+
+---
+
+## 4. What the Nuanced Product Requirements Mean Technically
+
+### 4.1 “Reduce ambiguity”
+
+This means:
+
+* extract symptoms from messy natural language,
+* identify missing critical fields,
+* ask targeted follow-up questions.
+
+**Technical implementation:**
+
+* `symptom_extractor.py`
+* `question_manager.py`
+* structured symptom state object
+
+### 4.2 “Seriousness framing”
+
+This means:
+
+* explain why the reported pattern matters,
+* explicitly challenge the assumption that it is “nothing” or “just ageing,”
+* use plain language, not heavy jargon.
+
+**Technical implementation:**
+
+* `concern_estimator.py` decides concern tier
+* `response_builder.py` turns that into plain-language explanation
+* optional retrieval support for educational justification
+
+### 4.3 “Action recommendation”
+
+This means:
+
+* always end with a concrete next step,
+* do not leave the user with vague reassurance,
+* do not end with “consult a professional” only.
+
+**Technical implementation:**
+
+* `action_mapper.py`
+* action tiers config
+* output templates by urgency level
+
+### 4.4 “Handle minimization / delay / avoidance”
+
+This means:
+
+* detect phrases like “it’s probably nothing,” “let’s wait,” “I don’t want to bother anyone,”
+* respond with calm but firm redirection,
+* separate emotional reassurance from medical downplaying.
+
+**Technical implementation:**
+
+* `hesitation_detector.py`
+* `hesitation_patterns.yaml`
+* LLM prompt section for reluctance-aware response generation
+
+### 4.5 “Support caregivers”
+
+This means:
+
+* produce a concise summary another person can act on,
+* state what changed, why it matters, and what to do next.
+
+**Technical implementation:**
+
+* `summary_generator.py`
+* caregiver output template
+
+---
+
+## 5. Current Problem With the Repository
+
+The current repository is difficult to manage because:
+
+* filenames are inconsistent,
+* old platform/mode ideas still leave traces,
+* responsibilities are not cleanly separated,
+* rule-based logic, knowledge logic, and UI logic are mixed together,
+* and the missing prerequisites are not explicit.
+
+So before adding new capabilities, the codebase must be normalized.
+
+---
+
+## 6. Mandatory Repository Reorganization
+
+The repository should be reorganized into this structure:
+
+```text
+NEUROGPT/
+  docs/
+    01_NeuroGPT_v2_Single_Product_PRD.md
+    02_NeuroGPT_v2_Technical_Execution_Plan.md
+    03_NeuroGPT_v2_Data_Schema.md
+    04_NeuroGPT_v2_Prompt_Spec.md
+  configs/
+    app.yaml
+    model.yaml
+    language.yaml
+    disclaimers.yaml
+    risk_rules.yaml
+    action_tiers.yaml
+    hesitation_patterns.yaml
+    retrieval.yaml
+  core/
+    __init__.py
+    types.py
+    config_loader.py
+    model_client.py
+    logging.py
+    session.py
+  pipeline/
+    __init__.py
+    state.py
+    orchestrator.py
+  modules/
+    __init__.py
+    symptom_extractor.py
+    question_manager.py
+    concern_estimator.py
+    action_mapper.py
+    hesitation_detector.py
+    response_builder.py
+    summary_generator.py
+  knowledge/
+    __init__.py
+    retriever.py
+    chunker.py
+    source_registry.py
+    ingest.py
+    sources/
+  ui/
+    __init__.py
+    app.py
+    view_models.py
+  tests/
+    test_symptom_extractor.py
+    test_concern_estimator.py
+    test_action_mapper.py
+    test_hesitation_detector.py
+    test_pipeline.py
+  archive/
+    ...old mode/platform files...
+```
+
+---
+
+## 7. Naming Rules Going Forward
+
+Every file name must reflect one clear responsibility.
+
+### Good examples
+
+* `symptom_extractor.py`
+* `question_manager.py`
+* `concern_estimator.py`
+* `action_mapper.py`
+* `response_builder.py`
+
+### Bad examples
+
+* `router.py`
+* `mode.py`
+* `helper.py`
+* `logic.py`
+* `misc.py`
+* `models.py` if it mixes data classes and LLM wrappers
+
+### Naming rule
+
+If a file name does not tell a new engineer exactly what it owns, rename it.
+
+---
+
+## 8. MVP Architecture
+
+The MVP should be implemented as a **single request-response pipeline**.
+
+### High-level flow
+
+```text
+User Input
+  -> Symptom Extraction
+  -> Missing-Field Detection
+  -> Follow-up Question Decision
+  -> Concern Estimation
+  -> Action Mapping
+  -> Hesitation Detection
+  -> Response Building
+  -> Optional Caregiver Summary
+  -> UI Output
+```
+
+### Important design rule
+
+The LLM should **not** own the whole pipeline.
+
+Instead:
+
+* deterministic code owns structure and safety-relevant flow,
+* LLM owns natural-language understanding and human-facing wording.
+
+---
+
+## 9. Canonical State Object
+
+The entire pipeline should pass around one structured state object.
+
+Create `pipeline/state.py` with a canonical `CaseState` model.
+
+### Required fields
+
+* `raw_user_input`
+* `symptoms_detected`
+* `onset`
+* `duration`
+* `progression`
+* `laterality`
+* `speech_change`
+* `consciousness_change`
+* `falls_or_injury`
+* `cognitive_change`
+* `psychological_behavior_flags`
+* `missing_fields`
+* `hesitation_flags`
+* `concern_level`
+* `action_level`
+* `needs_follow_up_question`
+* `follow_up_question`
+* `plain_language_rationale`
+* `user_message`
+* `caregiver_summary`
+
+This prevents loose dictionaries and hidden assumptions.
+
+---
+
+## 10. Required Config Files and Their Roles
+
+### `app.yaml`
+
+App-wide settings:
+
+* environment
+* feature toggles
+* whether retrieval is enabled
+* whether caregiver summary is enabled
+
+### `model.yaml`
+
+LLM settings:
+
+* provider
+* model name
+* temperature
+* timeout
+
+### `risk_rules.yaml`
+
+Deterministic concern logic:
+
+* symptom combinations
+* red-flag patterns
+* concern tiers
+
+### `action_tiers.yaml`
+
+Maps concern level to next-step guidance.
+
+### `hesitation_patterns.yaml`
+
+Defines common minimization / avoidance language patterns.
+
+### `disclaimers.yaml`
+
+Stores user-facing disclaimer text.
+
+### `retrieval.yaml`
+
+Controls whether knowledge retrieval is off/on, and later how retrieval behaves.
+
+---
+
+## 11. Pre-Requirements Before More Feature Development
+
+The following must be completed before continuing feature expansion:
+
+### 11.1 Normalize folder structure
+
+Move files into the new architecture.
+
+### 11.2 Remove old concepts from active code paths
+
+Archive anything related to:
+
+* modes,
+* routing across unrelated assistants,
+* old platform abstractions.
+
+### 11.3 Create canonical data types
+
+Add `core/types.py` and `pipeline/state.py`.
+
+### 11.4 Standardize config loading
+
+All configs must be loaded through one clean `config_loader.py`.
+
+### 11.5 Add a single entrypoint orchestrator
+
+The app must not stitch logic together ad hoc.
+It needs one official pipeline coordinator.
+
+### 11.6 Create tests for the core logic
+
+At minimum, the concern rules and action mapping must be testable.
+
+---
+
+## 12. Step-by-Step Build Plan
+
+# Phase 0 — Repo Cleanup and Normalization
+
+Goal: make the codebase understandable.
+
+### Step 0.1 Archive obsolete documents and code
+
+Move all inactive mode/platform artifacts into `/archive`.
+
+### Step 0.2 Rename files to responsibility-based names
+
+Do not keep vague file names.
+
+### Step 0.3 Create the new folder structure
+
+Add `pipeline/`, `modules/`, `knowledge/`, `tests/`.
+
+### Step 0.4 Create canonical types
+
+Implement `CaseState` and all enums / structured types.
+
+### Step 0.5 Update imports
+
+After restructuring, fix all imports and remove dead references.
+
+### Deliverable
+
+A clean repository with stable structure and no old product narrative leaking into the codebase.
+
+---
+
+# Phase 1 — No-RAG MVP Pipeline
+
+Goal: make the core product work end-to-end without retrieval.
+
+### Step 1.1 Implement `symptom_extractor.py`
+
+Input: raw user text.
+Output: structured symptom fields.
+
+Responsibilities:
+
+* identify likely symptom mentions,
+* identify phrasing around onset and progression,
+* extract surface-level cognitive and behavioral cues,
+* mark fields still unknown.
+
+### Step 1.2 Implement `question_manager.py`
+
+Input: `CaseState` after extraction.
+Output: either:
+
+* a follow-up question, or
+* no follow-up question needed.
+
+Responsibilities:
+
+* decide what missing field matters most,
+* ask only one question at a time,
+* prioritize questions that affect concern estimation.
+
+Example rule:
+If weakness is mentioned but sudden-vs-gradual onset is unknown, ask onset first.
+
+### Step 1.3 Implement `concern_estimator.py`
+
+Input: structured symptom state.
+Output: `concern_level`.
+
+Concern levels should be simple for MVP:
+
+* `high`
+* `moderate`
+* `low`
+* `unclear`
+
+Responsibilities:
+
+* apply deterministic rules from `risk_rules.yaml`,
+* detect red-flag patterns,
+* remain conservative when ambiguity is dangerous.
+
+### Step 1.4 Implement `action_mapper.py`
+
+Input: `concern_level`.
+Output: `action_level` and next-step instruction.
+
+Example action levels:
+
+* `emergency_now`
+* `same_day_medical_review`
+* `prompt_follow_up`
+* `monitor_with_clear_watchouts`
+
+### Step 1.5 Implement `hesitation_detector.py`
+
+Input: raw user text + recent conversational text.
+Output: hesitation flags.
+
+Responsibilities:
+
+* detect minimization,
+* detect delay,
+* detect fear of burdening others,
+* detect avoidance of doctors.
+
+### Step 1.6 Implement `response_builder.py`
+
+Input:
+
+* extracted case state,
+* concern level,
+* action level,
+* hesitation flags.
+
+Output:
+
+* the user-facing message.
+
+The message should contain, in order:
+
+1. brief acknowledgement,
+2. what is concerning,
+3. why it should not be ignored,
+4. next step,
+5. short disclaimer if needed.
+
+### Step 1.7 Implement `summary_generator.py`
+
+Input: case state + action.
+Output: caregiver-facing summary.
+
+The summary should contain:
+
+* the symptom/change,
+* what makes it concerning,
+* recommended next action.
+
+### Step 1.8 Implement `pipeline/orchestrator.py`
+
+This is the command center.
+
+Responsibilities:
+
+* call the modules in the right order,
+* decide whether to ask a follow-up question or give a final recommendation,
+* assemble final output object for the UI.
+
+### Deliverable
+
+A working no-RAG MVP that can:
+
+* accept symptom descriptions,
+* ask follow-up questions,
+* estimate concern,
+* give a seriousness explanation,
+* recommend action,
+* generate caregiver summary.
+
+---
+
+# Phase 2 — Minimal Memory and Multi-Turn Handling
+
+Goal: make conversation state coherent across turns.
+
+### Step 2.1 Add `conversation_memory.py` only if needed
+
+This should be lightweight.
+It should store:
+
+* previous answers to follow-up questions,
+* latest case state,
+* latest concern level.
+
+Do not build general long-term memory.
+
+### Step 2.2 Update orchestrator for multi-turn merge
+
+New user messages should update the same `CaseState` rather than start from scratch.
+
+### Deliverable
+
+The app can carry a short structured conversation across turns.
+
+---
+
+# Phase 3 — Add Minimal Retrieval Support
+
+Goal: support better explanation, not core decision-making.
+
+### Step 3.1 Add `knowledge/source_registry.py`
+
+Tracks knowledge files and metadata.
+
+### Step 3.2 Add `knowledge/chunker.py`
+
+Splits source documents into chunks for retrieval.
+
+### Step 3.3 Add `knowledge/ingest.py`
+
+Builds retrieval index.
+
+### Step 3.4 Add `knowledge/retriever.py`
+
+Returns top relevant chunks for explanation support.
+
+### Step 3.5 Update `response_builder.py`
+
+Allow optional use of retrieved passages to improve explanation.
+
+### Rule
+
+Retrieval helps explain seriousness.
+It does not replace deterministic concern logic.
+
+### Deliverable
+
+The app can retrieve curated knowledge to support better plain-language explanation.
+
+---
+
+# Phase 4 — UI Refinement
+
+Goal: make the product usable for real people.
+
+### Step 4.1 Build simple single-page UI
+
+UI sections:
+
+* symptom input,
+* conversation panel,
+* next-step recommendation,
+* caregiver summary.
+
+### Step 4.2 Add one-question-at-a-time interaction
+
+Avoid long form dumps.
+
+### Step 4.3 Add action-focused visual hierarchy
+
+Show the recommended next step clearly.
+
+### Deliverable
+
+A usable demo UI.
+
+---
+
+# Phase 5 — Evaluation and Hardening
+
+Goal: confirm the system behaves as intended.
+
+### Step 5.1 Build scenario test set
+
+Create 30–50 test scenarios across:
+
+* neurological symptoms,
+* cognitive change,
+* psychological/behavioral red flags,
+* hesitation patterns.
+
+### Step 5.2 Add regression tests
+
+Make sure concern rules and action mapping stay stable.
+
+### Step 5.3 Review dangerous failure cases
+
+Especially:
+
+* false reassurance,
+* vague action advice,
+* overconfidence,
+* response that sounds too diagnosis-like.
+
+### Deliverable
+
+A testable MVP with clear quality gates.
+
+---
+
+## 13. Concern Logic Design
+
+For the MVP, concern estimation should use a **hybrid design**:
+
+### Deterministic layer
+
+Used for:
+
+* high-risk symptom combinations,
+* urgency consistency,
+* action thresholds.
+
+### LLM-assisted layer
+
+Used for:
+
+* understanding ambiguous language,
+* summarizing what the user said,
+* plain-language explanation,
+* nuanced hesitation-aware phrasing.
+
+### Rule
+
+If deterministic logic and LLM interpretation conflict, deterministic safety logic wins.
+
+---
+
+## 14. RAG Design Decision
+
+RAG is **not** phase 1.
+
+### Why
+
+The MVP problem is not “lack of medical text.”
+The MVP problem is structured understanding and action guidance.
+
+### Role of RAG later
+
+RAG should later help with:
+
+* better explanation,
+* better educational support,
+* more consistent wording tied to curated knowledge.
+
+### Role RAG must not take
+
+RAG must not be the primary engine deciding urgency.
+
+---
+
+## 15. Knowledge Base Design
+
+When retrieval is added, the knowledge base should be curated and narrow.
+
+### Initial source categories
+
+* stroke / TIA warning signs
+* seizure / loss of awareness warning signs
+* cognitive decline warning signs
+* balance / gait / falls concerns
+* late-life psychological and behavioral warning signs
+* caregiver guidance
+* plain-language help-seeking education
+
+### Each source must have metadata
+
+* title
+* topic
+* intended use
+* trust level
+* language
+* last reviewed date
+
+---
+
+## 16. MVP Output Contract
+
+Every final response object returned by the orchestrator should include:
+
+* `needs_follow_up_question: bool`
+* `follow_up_question: str | null`
+* `concern_level: str`
+* `action_level: str`
+* `user_message: str`
+* `caregiver_summary: str | null`
+* `disclaimer: str | null`
+
+This keeps the UI clean and predictable.
+
+---
+
+## 17. Implementation Boundaries
+
+The system must not:
+
+* diagnose disease,
+* invent prevalence claims,
+* say a symptom is normal ageing unless explicitly supported and framed cautiously,
+* give emotional reassurance that weakens action when action is needed,
+* act like a substitute doctor.
+
+The system may:
+
+* explain why a symptom pattern deserves attention,
+* recommend that the user seek timely care,
+* help the user communicate clearly with family or clinicians.
+
+---
+
+## 18. What MaxClaw Should Do First
+
+The very first coding assignment should be:
+
+1. Reorganize repository structure to match this document.
+2. Archive all inactive mode/platform files.
+3. Create canonical `CaseState` types.
+4. Create `pipeline/orchestrator.py`.
+5. Move existing extractor and risk logic into `modules/`.
+6. Add missing modules as empty stubs with docstrings.
+7. Fix imports.
+8. Add a `README` section describing the new architecture.
+
+No new feature work should happen before this normalization step is complete.
+
+---
+
+## 19. Concrete Task Order for MaxClaw
+
+### Task Pack A — Restructure
+
+* create new folders
+* move files
+* rename files
+* archive obsolete ones
+* update imports
+
+### Task Pack B — Types and Config
+
+* create `core/types.py`
+* create `pipeline/state.py`
+* standardize config schemas
+
+### Task Pack C — Core Modules
+
+* finish `symptom_extractor.py`
+* build `question_manager.py`
+* finish `concern_estimator.py`
+* build `action_mapper.py`
+* build `hesitation_detector.py`
+
+### Task Pack D — Output Layer
+
+* build `response_builder.py`
+* build `summary_generator.py`
+* define output contract
+
+### Task Pack E — Orchestration
+
+* implement `pipeline/orchestrator.py`
+* ensure it handles both follow-up and final-output paths
+
+### Task Pack F — UI Hookup
+
+* connect orchestrator output to UI
+
+### Task Pack G — Tests
+
+* add scenario tests
+* add config-based rule tests
+
+---
+
+## 20. Definition of “Phase 1 Complete”
+
+Phase 1 is complete only when all of the following are true:
+
+* the repo structure is normalized,
+* the core modules exist and have clear responsibilities,
+* the orchestrator runs end-to-end,
+* the system can ask at least one useful follow-up question,
+* the system can assign a concern level,
+* the system can produce a seriousness explanation,
+* the system can produce an action recommendation,
+* the system can generate a caregiver summary,
+* and the app runs without relying on retrieval.
+
+If any of these are missing, phase 1 is not complete.
+
+---
+
+## 21. Final Instruction
+
+NeuroGPT v2 should be built as a **clean, narrow, action-oriented symptom seriousness pipeline**.
+
+Whenever there is a design choice, choose the option that makes the system:
+
+* more structured,
+* more understandable,
+* more action-focused,
+* and less platform-like.
+
+This is the engineering direction.
