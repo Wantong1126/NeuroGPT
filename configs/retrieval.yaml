@@ -1,0 +1,39 @@
+# NeuroGPT v2 — Retrieval Configuration
+# Controls whether knowledge retrieval is enabled.
+# Executive Plan Section 10 + Phase 3.
+
+version: "1.0"
+
+# Feature toggle — set to false during Phase 1 (No-RAG MVP)
+enabled: false
+
+# Retrieval behavior settings
+retrieval:
+  # Maximum number of chunks to retrieve per query
+  top_k: 3
+
+  # Minimum relevance score (0.0–1.0) to include a chunk
+  min_score: 0.6
+
+  # Which knowledge categories to search (see knowledge/source_registry.yaml)
+  allowed_sources:
+    - stroke_warnings
+    - cognitive_decline
+    - seizure_warnings
+    - falls_balance
+    - psychological_behavioral
+    - caregiver_guidance
+    - help_seeking_education
+
+  # Chunk size for document splitting
+  chunk_size: 500        # characters
+  chunk_overlap: 50      # characters overlap between chunks
+
+  # Use for explanation only — must never override deterministic concern logic
+  role: "explanation_support"
+  critical_safety_override: true  # if true: always trust deterministic rules over retrieved content
+
+# Knowledge source metadata (loaded by knowledge/source_registry.py)
+# Each source must have metadata before ingestion.
+# See docs/REFERENCES.md for source tracking.
+sources_config_path: "knowledge/sources/metadata.yaml"

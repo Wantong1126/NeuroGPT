@@ -1,0 +1,104 @@
+# NeuroGPT v2 — Hesitation & Minimization Patterns
+# Used by modules/hesitation_detector.py
+# Detects language that signals the user may delay or avoid action.
+# Executive Plan Section 4.4 + Step 1.5
+
+version: "1.0"
+
+# Patterns grouped by hesitation type.
+# Match is case-insensitive. Order matters: more specific first.
+
+hesitation_types:
+  minimization:
+    label: "minimization"
+    description: "User is downplaying the symptom ('it's probably nothing')"
+    patterns:
+      - "没什么"
+      - "应该没事"
+      - "可能没事"
+      - "估计不要紧"
+      - "不算严重"
+      - "just old age"
+      - "it's probably nothing"
+      - "probably fine"
+      - "probably not serious"
+      - "probably just aging"
+      - "没什么大不了的"
+      - "小事"
+      - "不严重"
+
+  delay:
+    label: "delay"
+    description: "User wants to wait and see"
+    patterns:
+      - "等等看"
+      - "先观察"
+      - "等几天再说"
+      - "先不着急"
+      - "不想现在去医院"
+      - "等有空再去"
+      - "let's wait"
+      - "wait and see"
+      - "give it a few days"
+      - "see if it gets better"
+      - "not urgent enough to go now"
+
+  avoidance:
+    label: "avoidance"
+    description: "User is avoiding seeing a doctor"
+    patterns:
+      - "不想看医生"
+      - "不想去医院"
+      - "害怕去医院"
+      - "不敢去看"
+      - "不想检查"
+      - "don't want to bother"
+      - "don't want to see a doctor"
+      - "too busy to go"
+      - "I can manage it myself"
+
+  burden:
+    label: "burden"
+    description: "User worried about being a burden"
+    patterns:
+      - "不想麻烦"
+      - "不想打扰"
+      - "怕麻烦孩子"
+      - "怕麻烦家人"
+      - "don't want to be a bother"
+      - "don't want to bother anyone"
+      - "don't want to worry my family"
+      - "hate to make a fuss"
+
+  embarrassment:
+    label: "embarrassment"
+    description: "User embarrassed about symptoms"
+    patterns:
+      - "不好意思"
+      - "丢人"
+      - "害怕别人笑话"
+      - "难为情"
+
+# Response strategy per hesitation type.
+# Maps to response_builder tone adjustments.
+response_strategies:
+  minimization:
+    redirect: "calm_but_firm"
+    tone: "warm_urgent"
+    challenge_directly: false
+  delay:
+    redirect: "time_sensitive"
+    tone: "warm_urgent"
+    challenge_directly: true
+  avoidance:
+    redirect: "reassure_not_dismiss"
+    tone: "gentle_firm"
+    challenge_directly: false
+  burden:
+    redirect: "normalize_action"
+    tone: "warm_reassuring"
+    challenge_directly: false
+  embarrassment:
+    redirect: "de_stigmatize"
+    tone: "warm_reassuring"
+    challenge_directly: false
