@@ -1,0 +1,643 @@
+# NeuroGPT v2 — CaseState and Pipeline Refactor Guide
+
+## 1. Purpose
+
+This document is the **implementation guide for refactoring the current codebase** so that NeuroGPT v2 runs on a **structured state pipeline**, not on full conversation history.
+
+This guide exists because the current repository has a `conversation_history` concept and config, but the main pipeline does not meaningfully use it. That creates two problems:
+
+* token cost increases,
+* but decision quality does not improve.
+
+The new design fixes that by making **CaseState** the primary source of truth.
+
+---
+
+## 2. Core Decision
+
+### We choose:
+
+* **GPT-based implementation**
+* **CaseState-first architecture**
+* **no full conversation history in the decision pipeline**
+* **only minimal recent messages if needed for hesitation detection or response tone continuity**
+
+### We do not choose:
+
+* full-history chat-style prompting,
+* history-heavy reasoning,
+* LLM-only end-to-end logic.
+
+---
+
+## 3. What “Structured Pipeline” Means
+
+A structured pipeline means the system does **not** behave like a free-form chatbot that re-reads the whole conversation every turn.
+
+Instead, each turn follows a fixed sequence of steps, and each step has one clear job.
+
+## Plain-language definition
+
+Instead of this:
+
+* “send the whole conversation to the model and hope it reasons correctly,”
+
+we do this:
+
+1. update the symptom state,
+2. check what information is missing,
+3. decide whether to ask a follow-up question,
+4. estimate concern level,
+5. map concern to next action,
+6. generate the user-facing explanation,
+7. optionally generate a caregiver summary.
+
+That is a **structured pipeline**.
+
+## Why it is better for this product
+
+Because NeuroGPT is not a general assistant.
+It is a symptom-seriousness and help-seeking product.
+So it needs:
+
+* consistency,
+* lower token cost,
+* clean module boundaries,
+* clear action logic,
+* and less noise from old chat turns.
+
+---
+
+## 4. New Architecture Rule
+
+The system must treat the following as separate things:
+
+### A. UI Transcript
+
+This is the visible conversation the user sees.
+It may store all chat messages for display.
+
+### B. CaseState
+
+This is the structured clinical/behavioral working state used by the pipeline.
+This is the real source of truth for decision-making.
+
+### C. Optional Recent Messages
+
+A very short recent-message buffer, only for:
+
+* hesitation detection,
+* response continuity,
+* emotional tone consistency.
+
+The pipeline must never depend on the full transcript when it could depend on CaseState.
+
+---
+
+## 5. Canonical CaseState
+
+Replace `laterality` with `positions`.
+
+### Why plural `positions` is better than singular `position`
+
+A user may report:
+
+* left hand palm,
+* right leg,
+* lower back,
+* both feet,
+* face and speech.
+
+So the system should support multiple locations.
+
+## Canonical CaseState schema
+
+```python
+from pydantic import BaseModel, Field
+from typing import List, Optional, Literal, Dict
+
+ConcernLevel = Literal["high", "moderate", "low", "unclear"]
+ActionLevel = Literal[
+    "emergency_now",
+    "same_day_medical_review",
+    "prompt_follow_up",
+    "monitor_with_watchouts",
+    "ask_follow_up_first",
+]
+
+class CaseState(BaseModel):
+    # raw inputs
+    raw_user_input: str = ""
+    recent_user_inputs: List[str] = Field(default_factory=list)
+
+    # extracted symptom picture
+    symptoms: List[str] = Field(default_factory=list)
+    positions: List[str] = Field(default_factory=list)   # e.g. ["left hand palm", "right foot"]
+    onset: Optional[str] = None                          # e.g. sudden / gradual / unknown
+    duration: Optional[str] = None                       # e.g. 2 hours / 3 weeks / unknown
+    progression: Optional[str] = None                    # e.g. worsening / stable / improving / fluctuating
+
+    # key neurological / cognitive / behavioral indicators
+    speech_change: Optional[bool] = None
+    consciousness_change: Optional[bool] = None
+    cognitive_change: Optional[bool] = None
+    gait_or_balance_change: Optional[bool] = None
+    falls_or_injury: Optional[bool] = None
+    seizure_like_event: Optional[bool] = None
+    psychological_behavior_flags: List[str] = Field(default_factory=list)
+
+    # ambiguity handling
+    missing_fields: List[str] = Field(default_factory=list)
+    needs_follow_up_question: bool = False
+    follow_up_question: Optional[str] = None
+
+    # hesitation / minimization
+    hesitation_flags: List[str] = Field(default_factory=list)
+
+    # pipeline decisions
+    concern_level: ConcernLevel = "unclear"
+    action_level: ActionLevel = "ask_follow_up_first"
+
+    # outputs
+    plain_language_rationale: Optional[str] = None
+    user_message: Optional[str] = None
+    caregiver_summary: Optional[str] = None
+
+    # optional metadata
+    extracted_entities: Dict[str, str] = Field(default_factory=dict)
+```
+
+---
+
+## 6. Design Rule for `positions`
+
+The extractor should fill `positions` with **human-readable body-location strings**.
+
+### Good examples
+
+* `left hand palm`
+* `right arm`
+* `left side of face`
+* `both legs`
+* `chest`
+* `lower back`
+
+### Not recommended for MVP
+
+Do not overcomplicate with anatomy ontologies yet.
+Do not split into too many separate coordinates or medical coding systems.
+
+For now, plain location strings are enough.
+
+---
+
+## 7. What to Do With `conversation_history`
+
+The current codebase already has a `conversation_history` concept/config.
+
+That should be refactored, not blindly deleted.
+
+## New rule
+
+`conversation_history` should become **UI/session transcript only**.
+
+It should not be the main thing passed into the LLM pipeline.
+
+### Allowed uses of transcript
+
+* render chat history in UI,
+* inspect last 1–2 turns for hesitation detection,
+* maintain natural continuity in wording.
+
+### Forbidden use
+
+Do not pass the full conversation transcript into:
+
+* symptom extraction,
+* concern estimation,
+* action mapping,
+* or final decision logic.
+
+---
+
+## 8. New Config Policy
+
+Replace history-heavy config behavior with state-first config behavior.
+
+## Required config changes
+
+### In `app.yaml`
+
+Add or change:
+
+```yaml
+use_structured_state: true
+use_full_conversation_history_for_pipeline: false
+max_recent_messages_for_context: 2
+enable_caregiver_summary: true
+```
+
+### Interpretation
+
+* `use_structured_state: true` means CaseState is required.
+* `use_full_conversation_history_for_pipeline: false` means full transcript cannot be sent into the core decision pipeline.
+* `max_recent_messages_for_context: 2` means at most the latest 2 user/assistant turns may be used for tone continuity or hesitation detection.
+
+---
+
+## 9. Required File Changes
+
+The following files should exist or be updated.
+
+### Create or update
+
+* `core/types.py`
+* `pipeline/state.py`
+* `pipeline/orchestrator.py`
+* `modules/symptom_extractor.py`
+* `modules/question_manager.py`
+* `modules/concern_estimator.py`
+* `modules/action_mapper.py`
+* `modules/hesitation_detector.py`
+* `modules/response_builder.py`
+* `modules/summary_generator.py`
+
+### Deprecate or refactor
+
+* any `conversation_history` logic that feeds full transcript into LLM prompts
+* any pipeline code that only uses `new_input` and discards the previous structured state
+
+---
+
+## 10. Correct End-to-End Flow
+
+```text
+User sends new message
+    -> update CaseState from new input
+    -> merge into prior CaseState in session
+    -> recompute missing fields
+    -> if critical field missing: ask one follow-up question
+    -> else estimate concern level
+    -> map to action level
+    -> detect hesitation flags (optional recent messages only)
+    -> build user-facing response
+    -> build caregiver summary if enabled
+    -> return output to UI
+```
+
+This is the correct MVP execution path.
+
+---
+
+## 11. Correct Responsibility of Each Module
+
+### `symptom_extractor.py`
+
+Input:
+
+* `new_user_input`
+* optional existing `CaseState`
+
+Output:
+
+* extracted symptom signals and updates
+
+Responsibility:
+
+* extract symptom words,
+* extract positions,
+* infer onset/progression clues,
+* detect explicit cognitive / behavioral wording,
+* produce updates for the state.
+
+### `question_manager.py`
+
+Input:
+
+* `CaseState`
+
+Output:
+
+* whether follow-up is needed,
+* one best next question.
+
+Responsibility:
+
+* find the most decision-relevant missing field,
+* ask exactly one focused question,
+* prioritize fields that affect concern estimation.
+
+### `concern_estimator.py`
+
+Input:
+
+* `CaseState`
+
+Output:
+
+* `concern_level`
+
+Responsibility:
+
+* use deterministic rules,
+* assess the overall seriousness of the current pattern,
+* remain conservative when dangerous ambiguity remains.
+
+### `action_mapper.py`
+
+Input:
+
+* `CaseState`
+* `concern_level`
+
+Output:
+
+* `action_level`
+
+Responsibility:
+
+* map concern into a concrete next-step class.
+
+### `hesitation_detector.py`
+
+Input:
+
+* `CaseState`
+* optional recent messages only
+
+Output:
+
+* `hesitation_flags`
+
+Responsibility:
+
+* detect minimization,
+* detect delay,
+* detect fear of help-seeking,
+* detect not-wanting-to-bother-family language.
+
+### `response_builder.py`
+
+Input:
+
+* `CaseState`
+* `concern_level`
+* `action_level`
+* `hesitation_flags`
+
+Output:
+
+* final user-facing message.
+
+Responsibility:
+
+* explain what is concerning,
+* explain why it matters,
+* keep tone calm but firm,
+* give one concrete next step,
+* avoid false reassurance.
+
+### `summary_generator.py`
+
+Input:
+
+* `CaseState`
+* `concern_level`
+* `action_level`
+
+Output:
+
+* caregiver summary.
+
+Responsibility:
+
+* summarize what changed,
+* summarize why it matters,
+* summarize what action is recommended.
+
+---
+
+## 12. Correct Orchestrator Pattern
+
+The orchestrator must be the single command center.
+
+## Pseudocode
+
+```python
+from pipeline.state import CaseState
+
+
+def run_pipeline(
+    new_user_input: str,
+    previous_state: CaseState | None,
+    recent_messages: list[dict] | None = None,
+) -> CaseState:
+    state = previous_state or CaseState()
+    state.raw_user_input = new_user_input
+    state.recent_user_inputs.append(new_user_input)
+
+    # 1. update structured state from new message
+    extracted_updates = symptom_extractor.extract(new_user_input, state)
+    state = merge_state(state, extracted_updates)
+
+    # 2. decide whether follow-up question is needed
+    follow_up = question_manager.next_question(state)
+    if follow_up is not None:
+        state.needs_follow_up_question = True
+        state.follow_up_question = follow_up
+        state.concern_level = "unclear"
+        state.action_level = "ask_follow_up_first"
+        return state
+
+    state.needs_follow_up_question = False
+    state.follow_up_question = None
+
+    # 3. estimate concern
+    state.concern_level = concern_estimator.estimate(state)
+
+    # 4. map action
+    state.action_level = action_mapper.map_action(state, state.concern_level)
+
+    # 5. detect hesitation using minimal recent context only
+    state.hesitation_flags = hesitation_detector.detect(
+        state=state,
+        recent_messages=recent_messages or [],
+    )
+
+    # 6. build user-facing message
+    state.user_message = response_builder.build(
+        state=state,
+        recent_messages=recent_messages or [],
+    )
+
+    # 7. build caregiver summary
+    state.caregiver_summary = summary_generator.build(state)
+
+    return state
+```
+
+---
+
+## 13. Merge Strategy
+
+The system must merge new information into the prior structured state.
+
+### Example
+
+Turn 1:
+
+* “My left hand feels weak.”
+
+Turn 2:
+
+* “It started suddenly this morning.”
+
+Turn 3:
+
+* “My speech also sounds odd.”
+
+The pipeline must **not** re-start from zero each time.
+It must update the existing CaseState.
+
+## Rule
+
+The merge step should:
+
+* keep old valid fields,
+* replace unknown fields with new known values,
+* allow correction if the user explicitly revises prior information.
+
+### Correction example
+
+Turn 1:
+
+* “left hand”
+
+Turn 2:
+
+* “Actually it is the right hand.”
+
+The merge logic must overwrite the prior position when the user clearly corrects it.
+
+---
+
+## 14. Minimal Context Policy
+
+If recent messages are passed to the LLM, they must be minimal.
+
+## Policy
+
+* pass at most 2 recent turns,
+* do not pass full transcript,
+* do not use transcript when CaseState already contains the needed fact,
+* prefer structured facts over old words.
+
+### Good use case
+
+Tone continuity and hesitation detection.
+
+### Bad use case
+
+Re-running symptom inference from the whole chat.
+
+---
+
+## 15. Why This Refactor Matters
+
+This refactor improves:
+
+### A. Cost
+
+Less token usage than full-history prompting.
+
+### B. Reliability
+
+Less confusion from old or corrected statements.
+
+### C. Engineering clarity
+
+Every file has one job.
+
+### D. Product fit
+
+NeuroGPT is a symptom-seriousness pipeline, not a general assistant.
+
+---
+
+## 16. What MaxClaw Must Change Now
+
+### Task 1
+
+Create canonical `CaseState` in `pipeline/state.py` using the schema in this document.
+
+### Task 2
+
+Replace `laterality` references with `positions`.
+
+### Task 3
+
+Refactor pipeline so it consumes:
+
+* `previous_state`
+* `new_user_input`
+* optional `recent_messages`
+
+instead of full conversation history.
+
+### Task 4
+
+Refactor `conversation_history` config usage so it is transcript-only, not pipeline-core.
+
+### Task 5
+
+Update extractor and merge logic so new facts accumulate into CaseState.
+
+### Task 6
+
+Ensure concern estimation runs on CaseState, not raw latest-message-only extraction.
+
+### Task 7
+
+Update response generation so it uses:
+
+* CaseState,
+* concern level,
+* action level,
+* hesitation flags,
+
+not the full transcript.
+
+### Task 8
+
+Add tests for:
+
+* multi-turn state merge,
+* correction overwrite,
+* position extraction,
+* follow-up question flow,
+* concern estimation after several turns.
+
+---
+
+## 17. Definition of Correct Behavior
+
+The refactor is correct only if:
+
+* the pipeline uses CaseState as the primary source of truth,
+* the full conversation transcript is no longer required for core decisions,
+* user corrections update structured state,
+* concern estimation works across multiple turns,
+* the system can still ask follow-up questions naturally,
+* and token cost is reduced compared with full-history prompting.
+
+---
+
+## 18. Final Instruction to MaxClaw
+
+NeuroGPT must be implemented as a **CaseState-driven structured pipeline**.
+
+Do not design it like a normal chatbot.
+Do not pass full conversation history into the core logic.
+Use structured state for facts, deterministic modules for decisions, and the LLM for language.
+
+That is the correct implementation direction.
