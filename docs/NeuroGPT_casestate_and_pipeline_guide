@@ -2,115 +2,41 @@
 
 ## 1. Purpose
 
-This document is the **implementation guide for refactoring the current codebase** so that NeuroGPT v2 runs on a **structured state pipeline**, not on full conversation history.
+This guide tells MaxClaw exactly how to refactor NeuroGPT so the system is **CaseState-first**, not **conversation-history-first**.
 
-This guide exists because the current repository has a `conversation_history` concept and config, but the main pipeline does not meaningfully use it. That creates two problems:
-
-* token cost increases,
-* but decision quality does not improve.
-
-The new design fixes that by making **CaseState** the primary source of truth.
+This is an implementation guide, not a brainstorming note.
 
 ---
 
-## 2. Core Decision
+## 2. Non-Negotiable Architecture Rules
 
-### We choose:
-
-* **GPT-based implementation**
-* **CaseState-first architecture**
-* **no full conversation history in the decision pipeline**
-* **only minimal recent messages if needed for hesitation detection or response tone continuity**
-
-### We do not choose:
-
-* full-history chat-style prompting,
-* history-heavy reasoning,
-* LLM-only end-to-end logic.
+1. **CaseState is the source of truth for all core decisions.**
+2. **Full `conversation_history` must not be used inside the core decision pipeline.**
+3. **`conversation_history` may remain only for UI transcript and at most 2 recent turns for hesitation/tone continuity.**
+4. **The pipeline must update one persistent CaseState across turns.**
+5. **Concern estimation must run on CaseState, not on latest-message-only extraction.**
+6. **Caregiver output must be explicitly wired through state, config, orchestrator, and summary generator.**
 
 ---
 
-## 3. What “Structured Pipeline” Means
+## 3. Exact Required Changes
 
-A structured pipeline means the system does **not** behave like a free-form chatbot that re-reads the whole conversation every turn.
+### 3.1 Replace the old top-level boolean fields
 
-Instead, each turn follows a fixed sequence of steps, and each step has one clear job.
+Replace this old section:
 
-## Plain-language definition
+```python
+# key neurological / cognitive / behavioral indicators
+speech_change: Optional[bool] = None
+consciousness_change: Optional[bool] = None
+cognitive_change: Optional[bool] = None
+gait_or_balance_change: Optional[bool] = None
+falls_or_injury: Optional[bool] = None
+seizure_like_event: Optional[bool] = None
+psychological_behavior_flags: List[str] = Field(default_factory=list)
+```
 
-Instead of this:
-
-* “send the whole conversation to the model and hope it reasons correctly,”
-
-we do this:
-
-1. update the symptom state,
-2. check what information is missing,
-3. decide whether to ask a follow-up question,
-4. estimate concern level,
-5. map concern to next action,
-6. generate the user-facing explanation,
-7. optionally generate a caregiver summary.
-
-That is a **structured pipeline**.
-
-## Why it is better for this product
-
-Because NeuroGPT is not a general assistant.
-It is a symptom-seriousness and help-seeking product.
-So it needs:
-
-* consistency,
-* lower token cost,
-* clean module boundaries,
-* clear action logic,
-* and less noise from old chat turns.
-
----
-
-## 4. New Architecture Rule
-
-The system must treat the following as separate things:
-
-### A. UI Transcript
-
-This is the visible conversation the user sees.
-It may store all chat messages for display.
-
-### B. CaseState
-
-This is the structured clinical/behavioral working state used by the pipeline.
-This is the real source of truth for decision-making.
-
-### C. Optional Recent Messages
-
-A very short recent-message buffer, only for:
-
-* hesitation detection,
-* response continuity,
-* emotional tone consistency.
-
-The pipeline must never depend on the full transcript when it could depend on CaseState.
-
----
-
-## 5. Canonical CaseState
-
-Replace `laterality` with `positions`.
-
-### Why plural `positions` is better than singular `position`
-
-A user may report:
-
-* left hand palm,
-* right leg,
-* lower back,
-* both feet,
-* face and speech.
-
-So the system should support multiple locations.
-
-## Canonical CaseState schema
+with this new structure:
 
 ```python
 from pydantic import BaseModel, Field
@@ -124,304 +50,323 @@ ActionLevel = Literal[
     "monitor_with_watchouts",
     "ask_follow_up_first",
 ]
+Severity = Literal["mild", "moderate", "severe", "unknown"]
 
-class CaseState(BaseModel):
-    # raw inputs
-    raw_user_input: str = ""
-    recent_user_inputs: List[str] = Field(default_factory=list)
+class SpeechLanguageState(BaseModel):
+    present: Optional[bool] = None
+    subtypes: List[str] = Field(default_factory=list)
+    severity: Severity = "unknown"
+    evidence: List[str] = Field(default_factory=list)
 
-    # extracted symptom picture
-    symptoms: List[str] = Field(default_factory=list)
-    positions: List[str] = Field(default_factory=list)   # e.g. ["left hand palm", "right foot"]
-    onset: Optional[str] = None                          # e.g. sudden / gradual / unknown
-    duration: Optional[str] = None                       # e.g. 2 hours / 3 weeks / unknown
-    progression: Optional[str] = None                    # e.g. worsening / stable / improving / fluctuating
+class ConsciousnessState(BaseModel):
+    present: Optional[bool] = None
+    subtypes: List[str] = Field(default_factory=list)
+    severity: Severity = "unknown"
+    transient: Optional[bool] = None
+    evidence: List[str] = Field(default_factory=list)
 
-    # key neurological / cognitive / behavioral indicators
-    speech_change: Optional[bool] = None
-    consciousness_change: Optional[bool] = None
-    cognitive_change: Optional[bool] = None
-    gait_or_balance_change: Optional[bool] = None
-    falls_or_injury: Optional[bool] = None
-    seizure_like_event: Optional[bool] = None
-    psychological_behavior_flags: List[str] = Field(default_factory=list)
+class CognitiveState(BaseModel):
+    present: Optional[bool] = None
+    subtypes: List[str] = Field(default_factory=list)
+    severity: Severity = "unknown"
+    evidence: List[str] = Field(default_factory=list)
 
-    # ambiguity handling
-    missing_fields: List[str] = Field(default_factory=list)
-    needs_follow_up_question: bool = False
-    follow_up_question: Optional[str] = None
+class GaitBalanceState(BaseModel):
+    present: Optional[bool] = None
+    subtypes: List[str] = Field(default_factory=list)
+    severity: Severity = "unknown"
+    evidence: List[str] = Field(default_factory=list)
 
-    # hesitation / minimization
-    hesitation_flags: List[str] = Field(default_factory=list)
+class PsychologicalBehaviorState(BaseModel):
+    present: Optional[bool] = None
+    subtypes: List[str] = Field(default_factory=list)
+    severity: Severity = "unknown"
+    evidence: List[str] = Field(default_factory=list)
 
-    # pipeline decisions
-    concern_level: ConcernLevel = "unclear"
-    action_level: ActionLevel = "ask_follow_up_first"
-
-    # outputs
-    plain_language_rationale: Optional[str] = None
-    user_message: Optional[str] = None
-    caregiver_summary: Optional[str] = None
-
-    # optional metadata
-    extracted_entities: Dict[str, str] = Field(default_factory=dict)
+class CaregiverOutput(BaseModel):
+    enabled: bool = False
+    summary: Optional[str] = None
+    urgency_line: Optional[str] = None
+    shareable: bool = True
 ```
 
----
+### 3.2 Replace `laterality` with `positions`
 
-## 6. Design Rule for `positions`
+Replace:
 
-The extractor should fill `positions` with **human-readable body-location strings**.
+```python
+laterality: Optional[str] = None
+```
 
-### Good examples
+with:
+
+```python
+positions: List[str] = Field(default_factory=list)
+```
+
+Use human-readable body location strings such as:
 
 * `left hand palm`
 * `right arm`
 * `left side of face`
 * `both legs`
-* `chest`
-* `lower back`
 
-### Not recommended for MVP
+### 3.3 Replace the old CaseState schema
 
-Do not overcomplicate with anatomy ontologies yet.
-Do not split into too many separate coordinates or medical coding systems.
+Replace the old CaseState block with this canonical CaseState:
 
-For now, plain location strings are enough.
+```python
+class CaseState(BaseModel):
+    raw_user_input: str = ""
+    recent_user_inputs: List[str] = Field(default_factory=list)
+
+    symptoms: List[str] = Field(default_factory=list)
+    positions: List[str] = Field(default_factory=list)
+    onset: Optional[str] = None
+    duration: Optional[str] = None
+    progression: Optional[str] = None
+
+    speech_language: SpeechLanguageState = Field(default_factory=SpeechLanguageState)
+    consciousness: ConsciousnessState = Field(default_factory=ConsciousnessState)
+    cognition: CognitiveState = Field(default_factory=CognitiveState)
+    gait_balance: GaitBalanceState = Field(default_factory=GaitBalanceState)
+    psychological_behavior: PsychologicalBehaviorState = Field(default_factory=PsychologicalBehaviorState)
+
+    falls_or_injury: Optional[bool] = None
+    seizure_like_event: Optional[bool] = None
+
+    missing_fields: List[str] = Field(default_factory=list)
+    needs_follow_up_question: bool = False
+    follow_up_question: Optional[str] = None
+
+    hesitation_flags: List[str] = Field(default_factory=list)
+
+    concern_level: ConcernLevel = "unclear"
+    action_level: ActionLevel = "ask_follow_up_first"
+
+    plain_language_rationale: Optional[str] = None
+    user_message: Optional[str] = None
+
+    caregiver_output: CaregiverOutput = Field(default_factory=CaregiverOutput)
+
+    extracted_entities: Dict[str, str] = Field(default_factory=dict)
+```
 
 ---
 
-## 7. What to Do With `conversation_history`
+## 4. Meaning of the New Design
 
-The current codebase already has a `conversation_history` concept/config.
+### 4.1 `symptoms`
 
-That should be refactored, not blindly deleted.
+`symptoms` stores normalized symptom labels for the overall symptom picture.
 
-## New rule
+Examples:
 
-`conversation_history` should become **UI/session transcript only**.
+* `difficulty_speaking`
+* `expressive_language_impairment`
+* `acute_confusion`
+* `gait_instability`
 
-It should not be the main thing passed into the LLM pipeline.
+### 4.2 Structured submodels
 
-### Allowed uses of transcript
+The submodels store rule-friendly detail.
 
-* render chat history in UI,
-* inspect last 1–2 turns for hesitation detection,
-* maintain natural continuity in wording.
+Example:
 
-### Forbidden use
+* `speech_language.subtypes = ["aphasia_expressive", "nonfluent_speech"]`
+* `consciousness.subtypes = ["acute_confusion"]`
 
-Do not pass the full conversation transcript into:
+### 4.3 Why this replaces booleans
 
-* symptom extraction,
-* concern estimation,
-* action mapping,
-* or final decision logic.
+A boolean like `speech_change=True` is too weak.
+The pipeline must know **what kind** of speech/language change happened.
 
 ---
 
-## 8. New Config Policy
+## 5. Exact Changes to `conversation_history`
 
-Replace history-heavy config behavior with state-first config behavior.
+Replace the old history-heavy idea with this rule:
 
-## Required config changes
+### New rule
 
-### In `app.yaml`
+`conversation_history` is **transcript-only**.
 
-Add or change:
+### Allowed uses
+
+* UI transcript rendering
+* at most 2 recent turns for hesitation detection
+* at most 2 recent turns for tone continuity
+
+### Forbidden uses
+
+Do not use full transcript for:
+
+* symptom extraction
+* concern estimation
+* action mapping
+* final decision logic
+
+---
+
+## 6. Exact Config Changes
+
+Update `app.yaml` and make sure these keys exist:
 
 ```yaml
 use_structured_state: true
 use_full_conversation_history_for_pipeline: false
 max_recent_messages_for_context: 2
-enable_caregiver_summary: true
+enable_caregiver_output: true
+caregiver_output_mode: "always"
 ```
 
-### Interpretation
+Interpretation:
 
-* `use_structured_state: true` means CaseState is required.
-* `use_full_conversation_history_for_pipeline: false` means full transcript cannot be sent into the core decision pipeline.
-* `max_recent_messages_for_context: 2` means at most the latest 2 user/assistant turns may be used for tone continuity or hesitation detection.
-
----
-
-## 9. Required File Changes
-
-The following files should exist or be updated.
-
-### Create or update
-
-* `core/types.py`
-* `pipeline/state.py`
-* `pipeline/orchestrator.py`
-* `modules/symptom_extractor.py`
-* `modules/question_manager.py`
-* `modules/concern_estimator.py`
-* `modules/action_mapper.py`
-* `modules/hesitation_detector.py`
-* `modules/response_builder.py`
-* `modules/summary_generator.py`
-
-### Deprecate or refactor
-
-* any `conversation_history` logic that feeds full transcript into LLM prompts
-* any pipeline code that only uses `new_input` and discards the previous structured state
+* `use_structured_state: true` means CaseState is mandatory.
+* `use_full_conversation_history_for_pipeline: false` means the core pipeline must not take full transcript.
+* `max_recent_messages_for_context: 2` means only minimal recent context may be passed.
+* `enable_caregiver_output: true` means caregiver output must be generated.
 
 ---
 
-## 10. Correct End-to-End Flow
+## 7. Exact Module Responsibilities
 
-```text
-User sends new message
-    -> update CaseState from new input
-    -> merge into prior CaseState in session
-    -> recompute missing fields
-    -> if critical field missing: ask one follow-up question
-    -> else estimate concern level
-    -> map to action level
-    -> detect hesitation flags (optional recent messages only)
-    -> build user-facing response
-    -> build caregiver summary if enabled
-    -> return output to UI
+### `modules/symptom_extractor.py`
+
+Must:
+
+* extract structured updates from the latest user input
+* update symptom labels, positions, onset, duration, progression
+* fill the structured submodels (`speech_language`, `consciousness`, `cognition`, `gait_balance`, `psychological_behavior`)
+* return `ExtractedUpdates`
+* **must not assess urgency**
+
+### `modules/question_manager.py`
+
+Must:
+
+* inspect CaseState
+* choose one highest-priority missing field
+* return one follow-up question or `None`
+
+### `modules/concern_estimator.py`
+
+Must:
+
+* consume full CaseState
+* use deterministic rules
+* produce `concern_level`
+* not rely on raw transcript
+
+### `modules/action_mapper.py`
+
+Must:
+
+* map `concern_level` to `action_level`
+
+### `modules/hesitation_detector.py`
+
+Must:
+
+* use CaseState plus optional last 2 turns only
+* detect minimization / delay / avoidance / burden concerns
+
+### `modules/response_builder.py`
+
+Must:
+
+* produce the user-facing message from CaseState + concern + action + hesitation flags
+* not use full transcript
+
+### `modules/summary_generator.py`
+
+Must:
+
+* generate caregiver summary
+* generate caregiver urgency line
+
+---
+
+## 8. Exact Symptom Extractor Design
+
+Replace any vague extractor example with this design rule:
+
+### Symptom extractor is hybrid
+
+1. **Rule-based matching first**
+2. **GPT normalization second**
+3. **Merge outputs into structured updates**
+
+### Step 1 — rule-based matching
+
+Use lexicon / regex / phrase matching for obvious patterns.
+
+Examples to cover:
+
+* speech/language: `slurred speech`, `can't speak`, `can't get words out`
+* consciousness: `passed out`, `fainted`, `confused`, `hard to wake`
+* positions: `left hand palm`, `right arm`, `left side of face`
+* onset: `sudden`, `gradual`
+* progression: `worsening`, `improving`
+
+### Step 2 — GPT normalization
+
+Use GPT only to return structured JSON updates.
+
+GPT prompt rule:
+
+* extract structured updates only
+* do not assess urgency
+* do not give advice
+* output JSON only
+
+### Step 3 — merge
+
+Merge rule-based hits and GPT updates into one `ExtractedUpdates` object.
+
+---
+
+## 9. Exact `ExtractedUpdates` Schema
+
+Add this schema to the symptom extractor guide or module example:
+
+```python
+class ExtractedUpdates(BaseModel):
+    symptoms: List[str] = Field(default_factory=list)
+    positions: List[str] = Field(default_factory=list)
+    onset: Optional[str] = None
+    duration: Optional[str] = None
+    progression: Optional[str] = None
+
+    speech_language_present: Optional[bool] = None
+    speech_language_subtypes: List[str] = Field(default_factory=list)
+    speech_language_evidence: List[str] = Field(default_factory=list)
+
+    consciousness_present: Optional[bool] = None
+    consciousness_subtypes: List[str] = Field(default_factory=list)
+    consciousness_evidence: List[str] = Field(default_factory=list)
+
+    cognition_present: Optional[bool] = None
+    cognition_subtypes: List[str] = Field(default_factory=list)
+    cognition_evidence: List[str] = Field(default_factory=list)
+
+    gait_balance_present: Optional[bool] = None
+    gait_balance_subtypes: List[str] = Field(default_factory=list)
+    gait_balance_evidence: List[str] = Field(default_factory=list)
+
+    psychological_behavior_present: Optional[bool] = None
+    psychological_behavior_subtypes: List[str] = Field(default_factory=list)
+    psychological_behavior_evidence: List[str] = Field(default_factory=list)
+
+    falls_or_injury: Optional[bool] = None
+    seizure_like_event: Optional[bool] = None
 ```
 
-This is the correct MVP execution path.
-
 ---
 
-## 11. Correct Responsibility of Each Module
+## 10. Exact Orchestrator Changes
 
-### `symptom_extractor.py`
-
-Input:
-
-* `new_user_input`
-* optional existing `CaseState`
-
-Output:
-
-* extracted symptom signals and updates
-
-Responsibility:
-
-* extract symptom words,
-* extract positions,
-* infer onset/progression clues,
-* detect explicit cognitive / behavioral wording,
-* produce updates for the state.
-
-### `question_manager.py`
-
-Input:
-
-* `CaseState`
-
-Output:
-
-* whether follow-up is needed,
-* one best next question.
-
-Responsibility:
-
-* find the most decision-relevant missing field,
-* ask exactly one focused question,
-* prioritize fields that affect concern estimation.
-
-### `concern_estimator.py`
-
-Input:
-
-* `CaseState`
-
-Output:
-
-* `concern_level`
-
-Responsibility:
-
-* use deterministic rules,
-* assess the overall seriousness of the current pattern,
-* remain conservative when dangerous ambiguity remains.
-
-### `action_mapper.py`
-
-Input:
-
-* `CaseState`
-* `concern_level`
-
-Output:
-
-* `action_level`
-
-Responsibility:
-
-* map concern into a concrete next-step class.
-
-### `hesitation_detector.py`
-
-Input:
-
-* `CaseState`
-* optional recent messages only
-
-Output:
-
-* `hesitation_flags`
-
-Responsibility:
-
-* detect minimization,
-* detect delay,
-* detect fear of help-seeking,
-* detect not-wanting-to-bother-family language.
-
-### `response_builder.py`
-
-Input:
-
-* `CaseState`
-* `concern_level`
-* `action_level`
-* `hesitation_flags`
-
-Output:
-
-* final user-facing message.
-
-Responsibility:
-
-* explain what is concerning,
-* explain why it matters,
-* keep tone calm but firm,
-* give one concrete next step,
-* avoid false reassurance.
-
-### `summary_generator.py`
-
-Input:
-
-* `CaseState`
-* `concern_level`
-* `action_level`
-
-Output:
-
-* caregiver summary.
-
-Responsibility:
-
-* summarize what changed,
-* summarize why it matters,
-* summarize what action is recommended.
-
----
-
-## 12. Correct Orchestrator Pattern
-
-The orchestrator must be the single command center.
-
-## Pseudocode
+Replace any orchestrator pseudocode that only uses `new_user_input` with this logic:
 
 ```python
 from pipeline.state import CaseState
@@ -436,11 +381,9 @@ def run_pipeline(
     state.raw_user_input = new_user_input
     state.recent_user_inputs.append(new_user_input)
 
-    # 1. update structured state from new message
     extracted_updates = symptom_extractor.extract(new_user_input, state)
     state = merge_state(state, extracted_updates)
 
-    # 2. decide whether follow-up question is needed
     follow_up = question_manager.next_question(state)
     if follow_up is not None:
         state.needs_follow_up_question = True
@@ -452,192 +395,99 @@ def run_pipeline(
     state.needs_follow_up_question = False
     state.follow_up_question = None
 
-    # 3. estimate concern
     state.concern_level = concern_estimator.estimate(state)
-
-    # 4. map action
     state.action_level = action_mapper.map_action(state, state.concern_level)
 
-    # 5. detect hesitation using minimal recent context only
     state.hesitation_flags = hesitation_detector.detect(
         state=state,
         recent_messages=recent_messages or [],
     )
 
-    # 6. build user-facing message
     state.user_message = response_builder.build(
         state=state,
         recent_messages=recent_messages or [],
     )
 
-    # 7. build caregiver summary
-    state.caregiver_summary = summary_generator.build(state)
+    state.caregiver_output.enabled = True
+    state.caregiver_output.summary = summary_generator.build_summary(state)
+    state.caregiver_output.urgency_line = summary_generator.build_urgency_line(state)
 
     return state
 ```
 
----
+### Required behavior
 
-## 13. Merge Strategy
-
-The system must merge new information into the prior structured state.
-
-### Example
-
-Turn 1:
-
-* “My left hand feels weak.”
-
-Turn 2:
-
-* “It started suddenly this morning.”
-
-Turn 3:
-
-* “My speech also sounds odd.”
-
-The pipeline must **not** re-start from zero each time.
-It must update the existing CaseState.
-
-## Rule
-
-The merge step should:
-
-* keep old valid fields,
-* replace unknown fields with new known values,
-* allow correction if the user explicitly revises prior information.
-
-### Correction example
-
-Turn 1:
-
-* “left hand”
-
-Turn 2:
-
-* “Actually it is the right hand.”
-
-The merge logic must overwrite the prior position when the user clearly corrects it.
+* pipeline must consume `previous_state`
+* pipeline must merge new facts into the same CaseState
+* pipeline must not restart from zero each turn
+* caregiver output must be explicitly generated in orchestration
 
 ---
 
-## 14. Minimal Context Policy
+## 11. Exact Merge Rules
 
-If recent messages are passed to the LLM, they must be minimal.
+Add this section.
 
-## Policy
+### Merge rule 1
 
-* pass at most 2 recent turns,
-* do not pass full transcript,
-* do not use transcript when CaseState already contains the needed fact,
-* prefer structured facts over old words.
+Keep old valid values unless new message clearly adds or corrects them.
 
-### Good use case
+### Merge rule 2
 
-Tone continuity and hesitation detection.
+If user explicitly corrects an old value, overwrite the old value.
 
-### Bad use case
+Example:
 
-Re-running symptom inference from the whole chat.
+* old: `positions = ["left hand palm"]`
+* new: user says `actually it is the right hand`
+* result: overwrite to `positions = ["right hand"]`
 
----
+### Merge rule 3
 
-## 15. Why This Refactor Matters
+If new message adds detail, enrich the existing state.
 
-This refactor improves:
+Example:
 
-### A. Cost
-
-Less token usage than full-history prompting.
-
-### B. Reliability
-
-Less confusion from old or corrected statements.
-
-### C. Engineering clarity
-
-Every file has one job.
-
-### D. Product fit
-
-NeuroGPT is a symptom-seriousness pipeline, not a general assistant.
+* old: `symptoms = ["difficulty_speaking"]`
+* new: `he knows what he wants to say but cannot get the words out`
+* result: add `speech_language.subtypes = ["aphasia_expressive", "nonfluent_speech"]`
 
 ---
 
-## 16. What MaxClaw Must Change Now
+## 12. Caregiver Output Wiring
 
-### Task 1
+Add this exact rule.
 
-Create canonical `CaseState` in `pipeline/state.py` using the schema in this document.
+Caregiver output is complete only if all four layers are updated:
 
-### Task 2
+1. `CaseState` has `caregiver_output`
+2. `app.yaml` has `enable_caregiver_output`
+3. `pipeline/orchestrator.py` calls `summary_generator`
+4. UI output contract exposes caregiver output
 
-Replace `laterality` references with `positions`.
-
-### Task 3
-
-Refactor pipeline so it consumes:
-
-* `previous_state`
-* `new_user_input`
-* optional `recent_messages`
-
-instead of full conversation history.
-
-### Task 4
-
-Refactor `conversation_history` config usage so it is transcript-only, not pipeline-core.
-
-### Task 5
-
-Update extractor and merge logic so new facts accumulate into CaseState.
-
-### Task 6
-
-Ensure concern estimation runs on CaseState, not raw latest-message-only extraction.
-
-### Task 7
-
-Update response generation so it uses:
-
-* CaseState,
-* concern level,
-* action level,
-* hesitation flags,
-
-not the full transcript.
-
-### Task 8
-
-Add tests for:
-
-* multi-turn state merge,
-* correction overwrite,
-* position extraction,
-* follow-up question flow,
-* concern estimation after several turns.
+If any one of these four is missing, caregiver output is not fully implemented.
 
 ---
 
-## 17. Definition of Correct Behavior
+## 13. Required Tests
 
-The refactor is correct only if:
+Add these tests to the guide.
 
-* the pipeline uses CaseState as the primary source of truth,
-* the full conversation transcript is no longer required for core decisions,
-* user corrections update structured state,
-* concern estimation works across multiple turns,
-* the system can still ask follow-up questions naturally,
-* and token cost is reduced compared with full-history prompting.
+Must test:
+
+* multi-turn state merge
+* explicit correction overwrite
+* position extraction
+* expressive aphasia / Broca-like input
+* acute confusion input
+* caregiver output generation
+* pipeline without full transcript
 
 ---
 
-## 18. Final Instruction to MaxClaw
+## 14. Final Instruction to MaxClaw
 
-NeuroGPT must be implemented as a **CaseState-driven structured pipeline**.
+Implement NeuroGPT as a **CaseState-driven structured pipeline**.
 
-Do not design it like a normal chatbot.
-Do not pass full conversation history into the core logic.
-Use structured state for facts, deterministic modules for decisions, and the LLM for language.
-
-That is the correct implementation direction.
+Do not use full `conversation_history` for core decisions.
+Use CaseState for facts, deterministic modules for decisions, and GPT for structured extraction + human-facing language.
