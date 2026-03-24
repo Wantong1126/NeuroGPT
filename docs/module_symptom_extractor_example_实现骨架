@@ -1,0 +1,98 @@
+# modules/symptom_extractor.py
+
+from pydantic import BaseModel, Field
+from typing import List, Optional
+import re
+
+class ExtractedUpdates(BaseModel):
+    symptoms: List[str] = Field(default_factory=list)
+    positions: List[str] = Field(default_factory=list)
+    onset: Optional[str] = None
+    duration: Optional[str] = None
+    progression: Optional[str] = None
+
+    speech_language_present: Optional[bool] = None
+    speech_language_subtypes: List[str] = Field(default_factory=list)
+    speech_language_evidence: List[str] = Field(default_factory=list)
+
+    consciousness_present: Optional[bool] = None
+    consciousness_subtypes: List[str] = Field(default_factory=list)
+    consciousness_evidence: List[str] = Field(default_factory=list)
+
+    cognition_present: Optional[bool] = None
+    cognition_subtypes: List[str] = Field(default_factory=list)
+    cognition_evidence: List[str] = Field(default_factory=list)
+
+    gait_balance_present: Optional[bool] = None
+    gait_balance_subtypes: List[str] = Field(default_factory=list)
+    gait_balance_evidence: List[str] = Field(default_factory=list)
+
+    psychological_behavior_present: Optional[bool] = None
+    psychological_behavior_subtypes: List[str] = Field(default_factory=list)
+    psychological_behavior_evidence: List[str] = Field(default_factory=list)
+
+    falls_or_injury: Optional[bool] = None
+    seizure_like_event: Optional[bool] = None
+
+
+SPEECH_PATTERNS = {
+    r"slurred speech|说话含糊|讲话不清": "slurred_speech",
+    r"can't speak|unable to speak|说不出话": "unable_to_speak",
+    r"can't get words out|说不出来|说话费劲": "aphasia_expressive",
+    r"can't understand speech|听不懂别人说话|理解不了语言": "aphasia_receptive",
+}
+
+CONSCIOUSNESS_PATTERNS = {
+    r"passed out|fainted|晕倒": "loss_of_consciousness",
+    r"confused|意识混乱|突然糊涂": "acute_confusion",
+    r"hard to wake|叫不醒|反应很慢": "reduced_responsiveness",
+    r"disoriented|不认地方|不知道在哪": "disorientation",
+}
+
+POSITION_PATTERNS = {
+    r"left hand palm|左手掌": "left hand palm",
+    r"right hand|右手": "right hand",
+    r"left side of face|左脸": "left side of face",
+    r"both legs|双腿": "both legs",
+}
+
+def _match_patterns(text: str, patterns: dict[str, str]) -> list[str]:
+    hits = []
+    for pattern, label in patterns.items():
+        if re.search(pattern, text, re.IGNORECASE):
+            hits.append(label)
+    return list(dict.fromkeys(hits))
+
+
+def extract_rule_based(text: str) -> ExtractedUpdates:
+    updates = ExtractedUpdates()
+
+    speech_hits = _match_patterns(text, SPEECH_PATTERNS)
+    if speech_hits:
+        updates.speech_language_present = True
+        updates.speech_language_subtypes.extend(speech_hits)
+        updates.speech_language_evidence.append(text)
+        updates.symptoms.extend(speech_hits)
+
+    consciousness_hits = _match_patterns(text, CONSCIOUSNESS_PATTERNS)
+    if consciousness_hits:
+        updates.consciousness_present = True
+        updates.consciousness_subtypes.extend(consciousness_hits)
+        updates.consciousness_evidence.append(text)
+        updates.symptoms.extend(consciousness_hits)
+
+    position_hits = _match_patterns(text, POSITION_PATTERNS)
+    if position_hits:
+        updates.positions.extend(position_hits)
+
+    if re.search(r"sudden|suddenly|突然", text, re.IGNORECASE):
+        updates.onset = "sudden"
+    elif re.search(r"gradual|gradually|慢慢|逐渐", text, re.IGNORECASE):
+        updates.onset = "gradual"
+
+    if re.search(r"worse|worsening|越来越严重|加重", text, re.IGNORECASE):
+        updates.progression = "worsening"
+    elif re.search(r"improving|好转", text, re.IGNORECASE):
+        updates.progression = "improving"
+
+    return updates
