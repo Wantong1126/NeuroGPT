@@ -2,13 +2,95 @@
 
 ## 1. Purpose
 
-This guide tells MaxClaw exactly how to refactor NeuroGPT so the system is **CaseState-first**, not **conversation-history-first**.
+This guide is the **first and only refactor file** MaxClaw should read for this subject.
 
-This is an implementation guide, not a brainstorming note.
+It must therefore be **self-contained**.
+It must not assume there is already a correct pipeline, scaffold, state schema, or history design in the codebase.
+
+This guide defines:
+
+* the target architecture,
+* the required file structure,
+* the canonical CaseState,
+* the pipeline flow,
+* the module responsibilities,
+* the config rules,
+* the caregiver output design,
+* the symptom extractor design,
+* and the required tests.
+
+MaxClaw should treat this document as the source of truth even if the current codebase is messy, incomplete, or inconsistent.
 
 ---
 
-## 2. Non-Negotiable Architecture Rules
+## 2. Build Direction
+
+NeuroGPT must be implemented as a **CaseState-driven structured pipeline**.
+
+It must **not** be implemented as:
+
+* a full-history chatbot,
+* a free-form conversational assistant,
+* or an LLM-only reasoning system.
+
+### Core product loop
+
+The system must work like this:
+
+1. user sends new input
+2. system updates CaseState
+3. system checks what key information is still missing
+4. system either asks one follow-up question or proceeds
+5. system estimates concern level from CaseState
+6. system maps concern to action
+7. system generates user-facing message
+8. system generates caregiver output if enabled
+
+This is the required structured pipeline.
+
+---
+
+## 3. Required Target File Structure
+
+If the current repository does not already have this structure, MaxClaw must create it.
+
+```text
+NEUROGPT/
+  configs/
+    app.yaml
+    model.yaml
+    disclaimers.yaml
+  core/
+    __init__.py
+    types.py
+  pipeline/
+    __init__.py
+    state.py
+    orchestrator.py
+    merge.py
+  modules/
+    __init__.py
+    symptom_extractor.py
+    question_manager.py
+    concern_estimator.py
+    action_mapper.py
+    hesitation_detector.py
+    response_builder.py
+    summary_generator.py
+  tests/
+    test_state_merge.py
+    test_symptom_extractor.py
+    test_concern_estimator.py
+    test_caregiver_output.py
+```
+
+### Rule
+
+If existing files already cover some of these responsibilities, MaxClaw may keep them, but must rename or move them until the ownership is clear.
+
+---
+
+## 4. Non-Negotiable Architecture Rules
 
 1. **CaseState is the source of truth for all core decisions.**
 2. **Full `conversation_history` must not be used inside the core decision pipeline.**
@@ -16,27 +98,13 @@ This is an implementation guide, not a brainstorming note.
 4. **The pipeline must update one persistent CaseState across turns.**
 5. **Concern estimation must run on CaseState, not on latest-message-only extraction.**
 6. **Caregiver output must be explicitly wired through state, config, orchestrator, and summary generator.**
+7. **If the current codebase has no correct pipeline yet, MaxClaw must create one following this document.**
 
 ---
 
-## 3. Exact Required Changes
+## 5. Canonical Types to Create
 
-### 3.1 Replace the old top-level boolean fields
-
-Replace this old section:
-
-```python
-# key neurological / cognitive / behavioral indicators
-speech_change: Optional[bool] = None
-consciousness_change: Optional[bool] = None
-cognitive_change: Optional[bool] = None
-gait_or_balance_change: Optional[bool] = None
-falls_or_injury: Optional[bool] = None
-seizure_like_event: Optional[bool] = None
-psychological_behavior_flags: List[str] = Field(default_factory=list)
-```
-
-with this new structure:
+Create these types even if they do not exist yet.
 
 ```python
 from pydantic import BaseModel, Field
@@ -90,30 +158,11 @@ class CaregiverOutput(BaseModel):
     shareable: bool = True
 ```
 
-### 3.2 Replace `laterality` with `positions`
+---
 
-Replace:
+## 6. Canonical CaseState to Create
 
-```python
-laterality: Optional[str] = None
-```
-
-with:
-
-```python
-positions: List[str] = Field(default_factory=list)
-```
-
-Use human-readable body location strings such as:
-
-* `left hand palm`
-* `right arm`
-* `left side of face`
-* `both legs`
-
-### 3.3 Replace the old CaseState schema
-
-Replace the old CaseState block with this canonical CaseState:
+Create this exact CaseState even if there is no existing state schema yet.
 
 ```python
 class CaseState(BaseModel):
@@ -152,44 +201,33 @@ class CaseState(BaseModel):
     extracted_entities: Dict[str, str] = Field(default_factory=dict)
 ```
 
----
+### Meaning
 
-## 4. Meaning of the New Design
-
-### 4.1 `symptoms`
-
-`symptoms` stores normalized symptom labels for the overall symptom picture.
-
-Examples:
-
-* `difficulty_speaking`
-* `expressive_language_impairment`
-* `acute_confusion`
-* `gait_instability`
-
-### 4.2 Structured submodels
-
-The submodels store rule-friendly detail.
-
-Example:
-
-* `speech_language.subtypes = ["aphasia_expressive", "nonfluent_speech"]`
-* `consciousness.subtypes = ["acute_confusion"]`
-
-### 4.3 Why this replaces booleans
-
-A boolean like `speech_change=True` is too weak.
-The pipeline must know **what kind** of speech/language change happened.
+* `symptoms` stores normalized symptom labels
+* `positions` stores human-readable locations such as `left hand palm`
+* submodels store rule-friendly detail
+* `caregiver_output` stores the separate caregiver-facing output
 
 ---
 
-## 5. Exact Changes to `conversation_history`
+## 7. What Not to Build
 
-Replace the old history-heavy idea with this rule:
+Do not build around these old ideas:
 
-### New rule
+* full-history prompting
+* top-level booleans like `speech_change` and `consciousness_change`
+* `laterality` as a single string
+* concern estimation from latest message only
+* caregiver summary as an afterthought outside orchestration
 
-`conversation_history` is **transcript-only**.
+If any of these exist in the current codebase, refactor away from them.
+If they do not exist yet, do not introduce them.
+
+---
+
+## 8. Exact `conversation_history` Policy
+
+If a `conversation_history` concept already exists, keep it only as transcript/UI support.
 
 ### Allowed uses
 
@@ -206,11 +244,15 @@ Do not use full transcript for:
 * action mapping
 * final decision logic
 
+### Required config behavior
+
+The core pipeline must be state-first, not history-first.
+
 ---
 
-## 6. Exact Config Changes
+## 9. Exact Config to Create or Update
 
-Update `app.yaml` and make sure these keys exist:
+Create or update `configs/app.yaml` so it contains at least:
 
 ```yaml
 use_structured_state: true
@@ -222,14 +264,16 @@ caregiver_output_mode: "always"
 
 Interpretation:
 
-* `use_structured_state: true` means CaseState is mandatory.
-* `use_full_conversation_history_for_pipeline: false` means the core pipeline must not take full transcript.
-* `max_recent_messages_for_context: 2` means only minimal recent context may be passed.
-* `enable_caregiver_output: true` means caregiver output must be generated.
+* `use_structured_state: true` means CaseState is mandatory
+* `use_full_conversation_history_for_pipeline: false` means the core pipeline must not take full transcript
+* `max_recent_messages_for_context: 2` means only minimal recent context may be passed
+* `enable_caregiver_output: true` means caregiver output must be generated
 
 ---
 
-## 7. Exact Module Responsibilities
+## 10. Exact Module Responsibilities
+
+Create these modules if they do not exist.
 
 ### `modules/symptom_extractor.py`
 
@@ -287,48 +331,9 @@ Must:
 
 ---
 
-## 8. Exact Symptom Extractor Design
+## 11. Exact `ExtractedUpdates` Schema to Create
 
-Replace any vague extractor example with this design rule:
-
-### Symptom extractor is hybrid
-
-1. **Rule-based matching first**
-2. **GPT normalization second**
-3. **Merge outputs into structured updates**
-
-### Step 1 — rule-based matching
-
-Use lexicon / regex / phrase matching for obvious patterns.
-
-Examples to cover:
-
-* speech/language: `slurred speech`, `can't speak`, `can't get words out`
-* consciousness: `passed out`, `fainted`, `confused`, `hard to wake`
-* positions: `left hand palm`, `right arm`, `left side of face`
-* onset: `sudden`, `gradual`
-* progression: `worsening`, `improving`
-
-### Step 2 — GPT normalization
-
-Use GPT only to return structured JSON updates.
-
-GPT prompt rule:
-
-* extract structured updates only
-* do not assess urgency
-* do not give advice
-* output JSON only
-
-### Step 3 — merge
-
-Merge rule-based hits and GPT updates into one `ExtractedUpdates` object.
-
----
-
-## 9. Exact `ExtractedUpdates` Schema
-
-Add this schema to the symptom extractor guide or module example:
+Create this schema in `modules/symptom_extractor.py` or a nearby owned file.
 
 ```python
 class ExtractedUpdates(BaseModel):
@@ -364,9 +369,73 @@ class ExtractedUpdates(BaseModel):
 
 ---
 
-## 10. Exact Orchestrator Changes
+## 12. Exact Symptom Extractor Design
 
-Replace any orchestrator pseudocode that only uses `new_user_input` with this logic:
+If there is no extractor yet, create one using this design.
+If there is an old extractor, refactor it to this design.
+
+### Rule
+
+The extractor is hybrid:
+
+1. **rule-based matching first**
+2. **GPT normalization second**
+3. **merge outputs into structured updates**
+
+### Step 1 — rule-based matching
+
+Use lexicon / regex / phrase matching for obvious patterns.
+
+Examples to cover:
+
+* speech/language: `slurred speech`, `can't speak`, `can't get words out`
+* consciousness: `passed out`, `fainted`, `confused`, `hard to wake`
+* positions: `left hand palm`, `right arm`, `left side of face`
+* onset: `sudden`, `gradual`
+* progression: `worsening`, `improving`
+
+### Step 2 — GPT normalization
+
+Use GPT only to return structured JSON updates.
+
+GPT prompt rule:
+
+* extract structured updates only
+* do not assess urgency
+* do not give advice
+* output JSON only
+
+### Step 3 — merge
+
+Merge rule-based hits and GPT updates into one `ExtractedUpdates` object.
+
+---
+
+## 13. Exact Pipeline Flow to Create
+
+Create or refactor the pipeline so it follows this flow exactly:
+
+```text
+new_user_input
+  -> update CaseState with extracted updates
+  -> recompute missing fields
+  -> if key field missing: ask one follow-up question
+  -> else estimate concern level
+  -> map concern to action
+  -> detect hesitation with minimal recent context only
+  -> build user-facing message
+  -> build caregiver output
+  -> return updated CaseState
+```
+
+This is the required structured pipeline.
+
+---
+
+## 14. Exact Orchestrator to Create or Refactor
+
+If no orchestrator exists, create `pipeline/orchestrator.py` with this pattern.
+If one exists, refactor it to this pattern.
 
 ```python
 from pipeline.state import CaseState
@@ -424,9 +493,9 @@ def run_pipeline(
 
 ---
 
-## 11. Exact Merge Rules
+## 15. Exact Merge Rules to Create
 
-Add this section.
+Create `pipeline/merge.py` if needed.
 
 ### Merge rule 1
 
@@ -454,24 +523,22 @@ Example:
 
 ---
 
-## 12. Caregiver Output Wiring
-
-Add this exact rule.
+## 16. Caregiver Output Wiring
 
 Caregiver output is complete only if all four layers are updated:
 
 1. `CaseState` has `caregiver_output`
 2. `app.yaml` has `enable_caregiver_output`
 3. `pipeline/orchestrator.py` calls `summary_generator`
-4. UI output contract exposes caregiver output
+4. output contract exposes caregiver output
 
 If any one of these four is missing, caregiver output is not fully implemented.
 
 ---
 
-## 13. Required Tests
+## 17. Required Tests to Create
 
-Add these tests to the guide.
+Create tests even if there are no tests yet.
 
 Must test:
 
@@ -485,9 +552,42 @@ Must test:
 
 ---
 
-## 14. Final Instruction to MaxClaw
+## 18. MaxClaw Task Order
+
+MaxClaw must do the work in this order:
+
+### Phase A — create the skeleton
+
+1. create the target folder structure
+2. create canonical types
+3. create canonical CaseState
+4. create app config keys
+5. create orchestrator and merge modules
+
+### Phase B — create the core modules
+
+6. create or refactor symptom extractor
+7. create or refactor question manager
+8. create or refactor concern estimator
+9. create or refactor action mapper
+10. create or refactor hesitation detector
+11. create or refactor response builder
+12. create or refactor summary generator
+
+### Phase C — add tests
+
+13. add required tests
+14. report unresolved conflicts with existing files
+
+---
+
+## 19. Final Instruction to MaxClaw
 
 Implement NeuroGPT as a **CaseState-driven structured pipeline**.
 
-Do not use full `conversation_history` for core decisions.
-Use CaseState for facts, deterministic modules for decisions, and GPT for structured extraction + human-facing language.
+This guide is self-contained.
+If the current codebase is incomplete, create the missing scaffold from this guide.
+If the current codebase conflicts with this guide, refactor toward this guide.
+
+Do not wait for an old schema or old pipeline to exist first.
+Build the correct target structure defined here.

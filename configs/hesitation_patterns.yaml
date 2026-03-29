@@ -37,6 +37,8 @@ hesitation_types:
       - "先不着急"
       - "不想现在去医院"
       - "等有空再去"
+      - "等几天看看再说"
+      - "不着急"
       - "let's wait"
       - "wait and see"
       - "give it a few days"

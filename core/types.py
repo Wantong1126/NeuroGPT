@@ -34,6 +34,14 @@ class ActionLevel(str, Enum):
     EDUCATE = "educate"                    # Information only, no urgent action
 
 
+class ActionTier(str, Enum):
+    """Backward-compatible action enum for older rule-engine imports."""
+    CALL_AMBULANCE = "emergency_now"
+    SEE_DOCTOR_URGENT = "same_day_review"
+    SCHEDULE_ROUTINE = "monitor"
+    MONITOR = "monitor"
+    EDUCATE = "educate"
+
 class RiskLevel(str, Enum):
     """Deterministic safety-engine risk output (internal)."""
     HIGH = "HIGH"       # Call emergency services NOW
@@ -91,7 +99,7 @@ class RedFlags(BaseModel):
 
 class ExtractedSymptoms(BaseModel):
     """Structured symptom profile from Step 2 (symptom_extractor)."""
-    raw_input: str = Field(description="Original user input, preserved for audit")
+    raw_input: str = Field(default="", description="Original user input, preserved for audit")
     symptom_type: list[str] = Field(default_factory=list)
     primary_symptom: str = ""
     onset: Onset = Onset.UNKNOWN
