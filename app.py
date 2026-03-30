@@ -1,11 +1,7 @@
-# entrypoint (CLI demo runner)
+﻿# SPDX-License-Identifier: MIT
+"""Project entrypoint."""
 
-from core.config_loader import load_config
-
-
-def main() -> None:
-    config = load_config()
-    print(config)
+from ui.app import main
 
 
 if __name__ == "__main__":

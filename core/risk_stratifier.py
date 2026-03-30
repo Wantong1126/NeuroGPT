@@ -1,6 +1,6 @@
-# SPDX-License-Identifier: MIT
+﻿# SPDX-License-Identifier: MIT
 """
-NeuroGPT v2 — Step 3: Risk Stratification Engine
+NeuroGPT v2 鈥?Step 3: Risk Stratification Engine
 Deterministic rule-based engine. Zero LLM calls.
 Applies YAML rule definitions to ExtractedSymptoms.
 """
@@ -18,16 +18,16 @@ from core.models import (
 from core.config_loader import load_yaml_config
 
 
-# ─────────────────────────────────────────────
+# 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
 # Rule Engine
-# ─────────────────────────────────────────────
+# 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
 
 class RiskStratifier:
     """
     Loads risk_rules.yaml and evaluates extracted symptoms
     against all rule conditions in priority order.
 
-    Priority order: HIGH → MEDIUM → LOW → UNKNOWN
+    Priority order: HIGH 鈫?MEDIUM 鈫?LOW 鈫?UNKNOWN
     Returns the FIRST matching rule (highest severity).
     """
 
@@ -39,7 +39,7 @@ class RiskStratifier:
         Main entry point. Returns RiskAssessment with risk level,
         recommended action, and human-readable explanation.
         """
-        # ── Check HIGH rules first ──
+        # 鈹€鈹€ Check HIGH rules first 鈹€鈹€
         high_match = self._check_section(symptoms, self.rules.get("high_risk", []))
         if high_match:
             return self._build_assessment(
@@ -49,7 +49,7 @@ class RiskStratifier:
                 symptoms,
             )
 
-        # ── MEDIUM rules ──
+        # 鈹€鈹€ MEDIUM rules 鈹€鈹€
         medium_match = self._check_section(symptoms, self.rules.get("medium_risk", []))
         if medium_match:
             return self._build_assessment(
@@ -59,7 +59,7 @@ class RiskStratifier:
                 symptoms,
             )
 
-        # ── LOW rules ──
+        # 鈹€鈹€ LOW rules 鈹€鈹€
         low_match = self._check_section(symptoms, self.rules.get("low_risk", []))
         if low_match:
             return self._build_assessment(
@@ -69,12 +69,12 @@ class RiskStratifier:
                 symptoms,
             )
 
-        # ── Fallback: UNKNOWN ──
+        # 鈹€鈹€ Fallback: UNKNOWN 鈹€鈹€
         return self._build_unknown(symptoms)
 
-    # ─────────────────────────────────────────────
+    # 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
     # Section checker
-    # ─────────────────────────────────────────────
+    # 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
 
     def _check_section(
         self, symptoms: ExtractedSymptoms, rules: list
@@ -90,17 +90,17 @@ class RiskStratifier:
             conditions = rule.get("conditions", {})
             requires_all = conditions.get("requires_all", True)
 
-            # ── Check onset ──
+            # 鈹€鈹€ Check onset 鈹€鈹€
             if "onset" in conditions:
                 if symptoms.onset.value != conditions["onset"]:
                     continue  # condition not met, skip this rule
 
-            # ── Check laterality ──
+            # 鈹€鈹€ Check laterality 鈹€鈹€
             if "laterality" in conditions:
                 if symptoms.laterality.value != conditions["laterality"]:
                     continue
 
-            # ── Check progression ──
+            # 鈹€鈹€ Check progression 鈹€鈹€
             if "progression" in conditions:
                 prog = conditions["progression"]
                 if isinstance(prog, str):
@@ -110,10 +110,10 @@ class RiskStratifier:
                     if symptoms.progression.value not in prog:
                         continue
 
-            # ── Check symptom boolean flags ──
+            # 鈹€鈹€ Check symptom boolean flags 鈹€鈹€
             checks = conditions.get("checks", [])
             if not checks:
-                # No checks defined — rule matches by onset/laterality alone
+                # No checks defined 鈥?rule matches by onset/laterality alone
                 return rule
 
             matched = self._eval_checks(symptoms, rf, checks)
@@ -174,13 +174,32 @@ class RiskStratifier:
                 # Simple boolean flag check
                 for flag_name, flag_value in check.items():
                     if flag_name.startswith("OR:"):
-                        # OR grouping — skip; handled by requires_all logic
+                        # OR grouping 鈥?skip; handled by requires_all logic
+                        continue
+                    if flag_name == "onset":
+                        if symptoms.onset.value == flag_value:
+                            matched += 1
+                        continue
+                    if flag_name == "laterality":
+                        if symptoms.laterality.value == flag_value:
+                            matched += 1
+                        continue
+                    if flag_name == "progression":
+                        if isinstance(flag_value, list):
+                            if symptoms.progression.value in flag_value:
+                                matched += 1
+                        elif symptoms.progression.value == flag_value:
+                            matched += 1
+                        continue
+                    if flag_name == "absence_of":
+                        if all(not symptom_flags.get(item, False) for item in flag_value):
+                            matched += 1
                         continue
                     if flag_name in symptom_flags:
                         if symptom_flags[flag_name] == flag_value:
                             matched += 1
                     elif flag_name == "OR":
-                        # OR condition — check if any are True
+                        # OR condition 鈥?check if any are True
                         or_items = check["OR"]
                         for or_item in or_items:
                             if or_item in symptom_flags and symptom_flags[or_item]:
@@ -193,9 +212,9 @@ class RiskStratifier:
 
         return matched
 
-    # ─────────────────────────────────────────────
+    # 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
     # Assessment builders
-    # ─────────────────────────────────────────────
+    # 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
 
     def _build_assessment(
         self,
@@ -219,25 +238,25 @@ class RiskStratifier:
         # Build key warning signs list
         warning_signs = []
         if rf.weakness_one_side:
-            warning_signs.append("单侧肢体无力")
+            warning_signs.append("one-sided weakness")
         if rf.facial_droop:
-            warning_signs.append("单侧面部下垂")
+            warning_signs.append("facial droop")
         if rf.slurred_speech or symptoms.word_finding_difficulty:
-            warning_signs.append("言语含糊或找词困难")
+            warning_signs.append("speech disturbance")
         if rf.sudden_onset:
-            warning_signs.append("突然起病")
+            warning_signs.append("sudden onset")
         if rf.acute_confusion:
-            warning_signs.append("急性意识混乱")
+            warning_signs.append("acute confusion")
         if rf.seizure:
-            warning_signs.append("癫痫发作")
+            warning_signs.append("seizure")
         if rf.severe_headache:
-            warning_signs.append("剧烈头痛")
+            warning_signs.append("severe headache")
         if symptoms.gait_difficulty:
-            warning_signs.append("步态困难")
+            warning_signs.append("gait difficulty")
         if symptoms.falls_present:
-            warning_signs.append("反复跌倒")
+            warning_signs.append("recurrent falls")
         if symptoms.memory_concern:
-            warning_signs.append("认知功能下降")
+            warning_signs.append("memory concern")
 
         return RiskAssessment(
             risk_level=risk_level,
@@ -258,8 +277,8 @@ class RiskStratifier:
             basis=RiskBasis(
                 rules_triggered=["INSUFFICIENT_INFO"],
                 red_flags_count=0,
-                primary_concern="信息不足，无法判断风险等级。需要进一步询问",
+                primary_concern="Insufficient information to determine risk level.",
             ),
-            urgency_explanation="信息不足以做出判断，建议就医获取专业评估",
+            urgency_explanation="Not enough information to stratify risk; seek clinical review.",
             key_warning_signs=[],
         )

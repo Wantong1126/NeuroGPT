@@ -210,6 +210,7 @@ class CaseState(BaseModel):
 
     # Response content
     plain_language_rationale: str = ""
+    why_not_normal_ageing: str = ""
     user_message: str = ""
     caregiver_summary: Optional[str] = None
 
