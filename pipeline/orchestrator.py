@@ -2,7 +2,7 @@
 """NeuroGPT v2 - Pipeline Orchestrator."""
 from __future__ import annotations
 
-from core.types import CaseState, PipelineOutput
+from core.types import CaseState, PipelineOutput, ActionStep
 from modules.action_mapper import map_to_action
 from modules.concern_estimator import estimate_concern
 from modules.hesitation_detector import detect_hesitation
@@ -14,8 +14,18 @@ from pipeline.state import new_case
 
 
 
-def _build_assistant_text(empathy: str, rationale: str, urgency: str) -> str:
-    parts = [part.strip() for part in (empathy, rationale, urgency) if part and part.strip()]
+def _format_steps(steps: list[ActionStep]) -> str:
+    if not steps:
+        return ""
+    lines = ["【现在怎么做】"]
+    for step in steps[:3]:
+        lines.append(f"{step.step_number}. {step.action}：{step.reason}")
+    return "\n".join(lines)
+
+
+
+def _build_assistant_text(empathy: str, rationale: str, urgency: str, steps: list[ActionStep]) -> str:
+    parts = [part.strip() for part in (empathy, rationale, urgency, _format_steps(steps)) if part and part.strip()]
     return "\n\n".join(parts)
 
 
@@ -58,6 +68,7 @@ def run_pipeline(session_id: str, user_input: str, state: CaseState | None = Non
         elder_response.empathy_statement,
         elder_response.what_this_means,
         elder_response.urgency_statement,
+        elder_response.action_steps,
     )
     state.user_message = assistant_text
     state.add_assistant_message(assistant_text)
