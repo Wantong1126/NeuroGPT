@@ -1,14 +1,14 @@
 ﻿# SPDX-License-Identifier: MIT
 """
-NeuroGPT v2 - Step 2: Symptom Extractor
-Uses LLM to parse free-text user input into ExtractedSymptoms.
-Falls back to a heuristic extractor when API key is unavailable.
+NeuroGPT v2 - Step 2: Symptom Extractor.
+Uses a provider-selected extractor and falls back to heuristics.
 """
 from __future__ import annotations
 
 from core.models import ExtractedSymptoms, Onset, Laterality, Progression, RedFlags
 from core.config_loader import load_prompt_template
 from core.llm import call_structured
+from core.provider_settings import get_provider
 
 SYSTEM_PROMPT = (
     "You are a clinical symptom-extraction assistant for a medical education tool "
@@ -47,14 +47,19 @@ SCHEMA = """
 """
 
 
+
 def extract_symptoms(user_input: str) -> ExtractedSymptoms:
     """Main entry point."""
+    provider = get_provider("symptom_extractor")
+    if provider != "openai_compatible":
+        return _heuristic_extract(user_input)
+
     template = load_prompt_template("symptom_extractor") or "Extract clinical features from: {user_input}"
     user_prompt = template.format(user_input=user_input)
 
     try:
         raw = call_structured(user_prompt, SYSTEM_PROMPT, SCHEMA)
-    except RuntimeError:
+    except Exception:
         return _heuristic_extract(user_input)
 
     return _parse_extracted(raw, user_input)
@@ -143,9 +148,7 @@ def _heuristic_extract(user_input: str) -> ExtractedSymptoms:
     """Best-effort parser used when LLM access is unavailable."""
     text = user_input.lower()
 
-    sudden_keywords = [
-        "突然", "忽然", "一下子", "今早", "今天早上", "today", "this morning", "sudden",
-    ]
+    sudden_keywords = ["突然", "忽然", "一下子", "今早", "今天早上", "today", "this morning", "sudden"]
     gradual_keywords = ["慢慢", "逐渐", "越来越", "几个月", "几周", "gradual", "slowly"]
     one_side_keywords = ["左", "右", "左边", "右边", "单侧", "一侧", "one side", "left", "right"]
     both_sides_keywords = ["双侧", "两边", "both sides", "bilateral"]

@@ -1,29 +1,79 @@
-# session manager
+﻿# SPDX-License-Identifier: MIT
+"""File-backed session storage for persisted CaseState."""
 from __future__ import annotations
-import json, time
+
+import json
+import time
+from datetime import datetime
 from pathlib import Path
+from uuid import uuid4
+
 from core.types import CaseState
-_D = Path(__file__).parent.parent / '.sessions'
-def _p(sid): return _D / (sid+'.json')
-def create_session(sid=None):
-    if sid is None: sid='s_'+str(int(time.time()*1000))
-    if _p(sid).exists(): obj=load_session(sid); [ret obj] if obj else None
-    from pipeline.state import new_case; return new_case(session_id=sid)
-def save_session(state):
-    _D.mkdir(exist_ok=True)
-    data=state.model_dump(mode='json')
-    for m in data.get('conversation_history',[]): m['timestamp']=str(m.get('timestamp',''))
-    _p(state.session_id).write_text(json.dumps(data,ensure_ascii=False,indent=2),encoding='utf-8')
-def load_session(sid):
-    p=_p(sid)
-    if not p.exists(): return None
+from pipeline.state import new_case
+
+SESSIONS_DIR = Path(__file__).parent.parent / ".sessions"
+
+
+
+def _session_path(session_id: str) -> Path:
+    return SESSIONS_DIR / f"{session_id}.json"
+
+
+
+def create_session(session_id: str | None = None) -> CaseState:
+    if session_id is None:
+        session_id = f"s_{int(time.time() * 1000)}_{uuid4().hex[:8]}"
+
+    existing = load_session(session_id)
+    if existing is not None:
+        return existing
+
+    state = new_case(session_id=session_id)
+    save_session(state)
+    return state
+
+
+
+def save_session(state: CaseState) -> None:
+    SESSIONS_DIR.mkdir(exist_ok=True)
+    data = state.model_dump(mode="json")
+    for message in data.get("conversation_history", []):
+        if message.get("timestamp") is not None:
+            message["timestamp"] = str(message["timestamp"])
+    _session_path(state.session_id).write_text(
+        json.dumps(data, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+
+
+
+def load_session(session_id: str) -> CaseState | None:
+    path = _session_path(session_id)
+    if not path.exists():
+        return None
+
     try:
-        from datetime import datetime
-        data=json.loads(p.read_text(encoding='utf-8'))
-        for m in data.get('conversation_history',[]):
-            if m.get('timestamp') and isinstance(m['timestamp'],str):
-                m['timestamp']=datetime.fromisoformat(m['timestamp'])
+        data = json.loads(path.read_text(encoding="utf-8"))
+        for message in data.get("conversation_history", []):
+            timestamp = message.get("timestamp")
+            if isinstance(timestamp, str) and timestamp:
+                message["timestamp"] = datetime.fromisoformat(timestamp)
         return CaseState(**data)
-    except: return None
-def list_sessions(): return [p.stem for p in _D.glob('*.json')]
-def delete_session(sid): p=_p(sid); [p.unlink() or True] if p.exists() else False
+    except Exception:
+        return None
+
+
+
+def list_sessions() -> list[str]:
+    if not SESSIONS_DIR.exists():
+        return []
+    return sorted(path.stem for path in SESSIONS_DIR.glob("*.json"))
+
+
+
+def delete_session(session_id: str) -> bool:
+    path = _session_path(session_id)
+    if not path.exists():
+        return False
+    path.unlink()
+    return True

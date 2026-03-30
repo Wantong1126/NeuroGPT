@@ -1,0 +1,5 @@
+﻿symptom_extractor:
+  provider: heuristic
+
+summary_generator:
+  provider: heuristic

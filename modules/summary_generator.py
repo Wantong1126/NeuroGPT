@@ -2,12 +2,66 @@
 """NeuroGPT v2 - Summary Generator."""
 from __future__ import annotations
 
+from core.llm import call_structured
+from core.provider_settings import get_provider
 from core.types import CaseState, CaregiverSummary
+
+SYSTEM_PROMPT = (
+    "You summarize neurological symptom concerns for an adult caregiver. "
+    "Be clear, plain-language, and action-oriented. Do not diagnose."
+)
+
+SCHEMA = """
+{
+  "summary_paragraph": "brief caregiver summary",
+  "red_flags_summary": ["list of red flags"],
+  "urgency": "plain-language urgency statement",
+  "recommended_action": "what the caregiver should do next",
+  "what_to_say_to_elder": "supportive wording for the elder",
+  "what_to_say_to_emergency_services": "short handoff summary if emergency",
+  "what_to_expect_at_er": "short expectation-setting note",
+  "questions_for_doctor": ["list of follow-up questions"]
+}
+"""
 
 
 
 def generate_summary(state: CaseState) -> CaregiverSummary:
-    """Return a caregiver-facing placeholder summary until LLM mode is enabled."""
+    """Return a provider-selected caregiver summary with heuristic fallback."""
+    provider = get_provider("summary_generator")
+    if provider == "openai_compatible":
+        try:
+            return _generate_llm_summary(state)
+        except Exception:
+            return _generate_heuristic_summary(state)
+    return _generate_heuristic_summary(state)
+
+
+
+def _generate_llm_summary(state: CaseState) -> CaregiverSummary:
+    prompt = (
+        f"User input: {state.raw_user_input}\n"
+        f"Primary symptom: {state.symptoms_detected.primary_symptom}\n"
+        f"Concern level: {state.concern_level.value}\n"
+        f"Action level: {state.action_level.value}\n"
+        f"Hesitation flags: {', '.join(state.hesitation_flags) or 'none'}\n"
+        f"Red flags: {state.symptoms_detected.red_flags.model_dump_json()}\n"
+    )
+    raw = call_structured(prompt, SYSTEM_PROMPT, SCHEMA)
+    return CaregiverSummary(
+        summary_paragraph=raw.get("summary_paragraph", ""),
+        red_flags_summary=raw.get("red_flags_summary", []),
+        urgency=raw.get("urgency", ""),
+        recommended_action=raw.get("recommended_action", ""),
+        what_to_say_to_elder=raw.get("what_to_say_to_elder", ""),
+        what_to_say_to_emergency_services=raw.get("what_to_say_to_emergency_services", ""),
+        what_to_expect_at_er=raw.get("what_to_expect_at_er", ""),
+        questions_for_doctor=raw.get("questions_for_doctor", []),
+    )
+
+
+
+def _generate_heuristic_summary(state: CaseState) -> CaregiverSummary:
     rf = state.symptoms_detected.red_flags
     red_flags = [
         label

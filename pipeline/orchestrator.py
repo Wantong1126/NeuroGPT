@@ -14,13 +14,18 @@ from pipeline.state import new_case
 
 
 
+def _build_assistant_text(empathy: str, rationale: str, urgency: str) -> str:
+    parts = [part.strip() for part in (empathy, rationale, urgency) if part and part.strip()]
+    return "\n\n".join(parts)
+
+
+
 def run_pipeline(session_id: str, user_input: str, state: CaseState | None = None):
     """Run the end-to-end pipeline for a single user turn."""
     if state is None:
         state = new_case(session_id=session_id)
 
     state = merge_turn(state, user_input)
-
     state.hesitation_flags = detect_hesitation(state)
 
     question = decide_question(state)
@@ -34,7 +39,7 @@ def run_pipeline(session_id: str, user_input: str, state: CaseState | None = Non
             concern_level=state.concern_level.value,
             action_level=state.action_level.value,
             user_message=question,
-            caregiver_summary=None,
+            caregiver_summary=state.caregiver_summary,
             disclaimer=None,
         )
         return state, output
@@ -49,7 +54,13 @@ def run_pipeline(session_id: str, user_input: str, state: CaseState | None = Non
     state.action_level = map_to_action(concern.concern_level)
 
     elder_response = build_response(state)
-    state.user_message = elder_response.urgency_statement
+    assistant_text = _build_assistant_text(
+        elder_response.empathy_statement,
+        elder_response.what_this_means,
+        elder_response.urgency_statement,
+    )
+    state.user_message = assistant_text
+    state.add_assistant_message(assistant_text)
 
     caregiver_summary = generate_summary(state)
     state.caregiver_summary = caregiver_summary.summary_paragraph
@@ -59,7 +70,7 @@ def run_pipeline(session_id: str, user_input: str, state: CaseState | None = Non
         follow_up_question=None,
         concern_level=state.concern_level.value,
         action_level=state.action_level.value,
-        user_message=elder_response.model_dump_json(indent=2),
+        user_message=assistant_text,
         caregiver_summary=caregiver_summary.summary_paragraph,
         disclaimer=elder_response.disclaimer,
     )

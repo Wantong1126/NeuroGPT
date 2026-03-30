@@ -1,0 +1,87 @@
+﻿<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>NeuroGPT Demo</title>
+  <style>
+    body { font-family: sans-serif; margin: 0; background: #f3f5f7; color: #1f2937; }
+    .page { max-width: 1000px; margin: 0 auto; padding: 24px; }
+    .grid { display: grid; gap: 16px; grid-template-columns: 2fr 1fr; }
+    .card { background: #fff; border: 1px solid #d1d5db; border-radius: 10px; padding: 16px; }
+    .chat { display: flex; flex-direction: column; gap: 12px; min-height: 320px; }
+    .msg { padding: 12px; border-radius: 8px; white-space: pre-wrap; }
+    .msg.user { background: #e5f0ff; }
+    .msg.assistant { background: #eef7ec; }
+    form { display: flex; gap: 8px; margin-top: 16px; }
+    textarea { flex: 1; min-height: 80px; padding: 10px; }
+    button { padding: 10px 14px; cursor: pointer; }
+    .meta { font-size: 14px; color: #4b5563; margin-bottom: 12px; }
+    .label { font-weight: 700; margin-bottom: 8px; }
+    .mono { font-family: Consolas, monospace; font-size: 13px; }
+    ul { margin: 8px 0 0 18px; padding: 0; }
+    @media (max-width: 800px) { .grid { grid-template-columns: 1fr; } }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <div class="card" style="margin-bottom: 16px;">
+      <div class="label">NeuroGPT Flask Demo</div>
+      <div class="meta">Session: <span class="mono">{{ session_id }}</span></div>
+      <div class="meta">Concern: <span class="mono">{{ concern_level }}</span> | Action: <span class="mono">{{ action_level }}</span></div>
+    </div>
+
+    <div class="grid">
+      <div class="card">
+        <div class="label">Conversation</div>
+        <div class="chat">
+          {% if messages %}
+            {% for message in messages %}
+              <div class="msg {{ message.role }}">
+                <strong>{{ message.role }}</strong>
+                <div>{{ message.content }}</div>
+              </div>
+            {% endfor %}
+          {% else %}
+            <div class="meta">No messages yet.</div>
+          {% endif %}
+        </div>
+
+        <form method="post" action="{{ url_for('chat') }}">
+          <textarea name="user_input" placeholder="Describe symptoms or answer the follow-up question"></textarea>
+          <button type="submit">Send</button>
+        </form>
+
+        <form method="post" action="{{ url_for('reset') }}">
+          <button type="submit">Reset Session</button>
+        </form>
+      </div>
+
+      <div class="card">
+        <div class="label">Latest Assistant Output</div>
+        <div class="msg assistant">{{ assistant_output or 'No assistant output yet.' }}</div>
+
+        <div class="label" style="margin-top: 16px;">Follow-up Question</div>
+        <div>{{ follow_up_question or 'None' }}</div>
+
+        <div class="label" style="margin-top: 16px;">Caregiver Summary</div>
+        <div>{{ caregiver_summary or 'None yet.' }}</div>
+
+        <div class="label" style="margin-top: 16px;">Hesitation Flags</div>
+        {% if hesitation_flags %}
+          <ul>
+            {% for flag in hesitation_flags %}
+              <li>{{ flag }}</li>
+            {% endfor %}
+          </ul>
+        {% else %}
+          <div>None</div>
+        {% endif %}
+
+        <div class="label" style="margin-top: 16px;">Provider Config</div>
+        <pre class="mono">{{ provider_config }}</pre>
+      </div>
+    </div>
+  </div>
+</body>
+</html>
