@@ -95,6 +95,10 @@ class RiskStratifier:
                 if symptoms.onset.value != conditions["onset"]:
                     continue  # condition not met, skip this rule
 
+            if "onset_in" in conditions:
+                if symptoms.onset.value not in conditions["onset_in"]:
+                    continue
+
             # 鈹€鈹€ Check laterality 鈹€鈹€
             if "laterality" in conditions:
                 if symptoms.laterality.value != conditions["laterality"]:
@@ -167,6 +171,11 @@ class RiskStratifier:
             "personality_change": symptoms.personality_change,
             "memory_concern": symptoms.memory_concern,
             "stroke_beFAST": rf.stroke_beFAST,
+            "speech_language_symptom": (
+                rf.slurred_speech
+                or symptoms.word_finding_difficulty
+                or "speech" in symptoms.symptom_type
+            ),
         }
 
         for check in checks:

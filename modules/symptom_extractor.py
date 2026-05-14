@@ -47,6 +47,54 @@ SCHEMA = """
 """
 
 
+SPEECH_ONSET_UNKNOWN_CLARIFICATION_PATTERNS = [
+    "我不知道怎么表达这个症状",
+    "我不知道怎么描述这个症状",
+    "不知道怎么表达这个症状",
+    "不知道怎么描述这个症状",
+    "不知道该怎么表达",
+    "不知道该怎么描述",
+    "don't know how to express",
+    "do not know how to express",
+    "don't know how to describe",
+    "do not know how to describe",
+]
+
+CLINICAL_SPEECH_MARKERS = [
+    "讲话不清",
+    "说话不清",
+    "口齿不清",
+    "含糊",
+    "说不出话",
+    "不会说话",
+    "表达困难",
+    "找词困难",
+    "叫不出名字",
+    "说话慢",
+    "slurred",
+    "trouble speaking",
+    "can't speak",
+    "cannot speak",
+    "cannot get words out",
+    "can't get words out",
+    "word finding",
+    "word-finding",
+    "aphasia",
+]
+
+
+def _is_non_neurological_expression_request(text: str) -> bool:
+    lowered = text.lower()
+    if not _has_any(lowered, SPEECH_ONSET_UNKNOWN_CLARIFICATION_PATTERNS):
+        return False
+    return not _has_any(lowered, CLINICAL_SPEECH_MARKERS)
+
+
+def _clean_symptom_types(symptom_types: list[str], remove_speech: bool = False) -> list[str]:
+    cleaned = [item for item in symptom_types if item != "speech"] if remove_speech else list(symptom_types)
+    return cleaned or ["other"]
+
+
 
 def extract_symptoms(user_input: str) -> ExtractedSymptoms:
     """Main entry point."""
@@ -69,6 +117,7 @@ def extract_symptoms(user_input: str) -> ExtractedSymptoms:
 def _parse_extracted(raw: dict, user_input: str) -> ExtractedSymptoms:
     """Parse LLM JSON output into Pydantic model."""
     rf_data = raw.get("red_flags", {})
+    is_expression_request = _is_non_neurological_expression_request(user_input)
 
     def _bool(value) -> bool:
         return bool(value) if value is not None else False
@@ -94,9 +143,13 @@ def _parse_extracted(raw: dict, user_input: str) -> ExtractedSymptoms:
         "unknown": Progression.UNKNOWN,
     }
 
+    symptom_type = raw.get("symptom_type", [])
+    if is_expression_request:
+        symptom_type = _clean_symptom_types(symptom_type, remove_speech=True)
+
     return ExtractedSymptoms(
         raw_input=user_input,
-        symptom_type=raw.get("symptom_type", []),
+        symptom_type=symptom_type,
         primary_symptom=raw.get("primary_symptom", user_input),
         onset=onset_map.get(raw.get("onset", "unknown"), Onset.UNKNOWN),
         laterality=laterality_map.get(raw.get("laterality", "unknown"), Laterality.UNKNOWN),
@@ -106,7 +159,7 @@ def _parse_extracted(raw: dict, user_input: str) -> ExtractedSymptoms:
         red_flags=RedFlags(
             weakness_one_side=_bool(rf_data.get("weakness_one_side")),
             facial_droop=_bool(rf_data.get("facial_droop")),
-            slurred_speech=_bool(rf_data.get("slurred_speech")),
+            slurred_speech=False if is_expression_request else _bool(rf_data.get("slurred_speech")),
             sudden_onset=_bool(rf_data.get("sudden_onset")),
             acute_confusion=_bool(rf_data.get("acute_confusion")),
             seizure=_bool(rf_data.get("seizure")),
@@ -118,10 +171,10 @@ def _parse_extracted(raw: dict, user_input: str) -> ExtractedSymptoms:
             new_falls=_bool(rf_data.get("new_falls")),
             head_injury=_bool(rf_data.get("head_injury")),
             incontinence=_bool(rf_data.get("incontinence")),
-            stroke_beFAST=_bool(rf_data.get("stroke_beFAST")),
+            stroke_beFAST=False if is_expression_request else _bool(rf_data.get("stroke_beFAST")),
         ),
         memory_concern=_bool(raw.get("memory_concern")),
-        word_finding_difficulty=_bool(raw.get("word_finding_difficulty")),
+        word_finding_difficulty=False if is_expression_request else _bool(raw.get("word_finding_difficulty")),
         disorientation=_bool(raw.get("disorientation")),
         tremor_present=_bool(raw.get("tremor_present")),
         falls_present=_bool(raw.get("falls_present")),
@@ -147,16 +200,42 @@ def _has_any(text: str, keywords: list[str]) -> bool:
 def _heuristic_extract(user_input: str) -> ExtractedSymptoms:
     """Best-effort parser used when LLM access is unavailable."""
     text = user_input.lower()
+    is_expression_request = _is_non_neurological_expression_request(text)
 
-    sudden_keywords = ["突然", "忽然", "一下子", "今早", "今天早上", "today", "this morning", "sudden"]
+    sudden_keywords = ["突然", "忽然", "一下子", "今早", "今天早上", "today", "this morning", "sudden", "suddenly"]
     gradual_keywords = ["慢慢", "逐渐", "越来越", "几个月", "几周", "gradual", "slowly"]
+    chronic_keywords = ["几年", "多年", "长期", "一直", "for years", "years", "longstanding", "chronic"]
     one_side_keywords = ["左", "右", "左边", "右边", "单侧", "一侧", "one side", "left", "right"]
     both_sides_keywords = ["双侧", "两边", "both sides", "bilateral"]
     worsening_keywords = ["加重", "恶化", "越来越", "更严重", "worsening", "getting worse"]
 
-    weakness_keywords = ["无力", "抬不起来", "动不了", "weak", "weakness"]
-    speech_keywords = ["讲话不清", "说话不清", "口齿不清", "含糊", "slurred", "speech"]
-    facial_keywords = ["嘴歪", "面瘫", "脸歪", "facial droop", "face droop"]
+    weakness_keywords = ["无力", "没力", "抬不起来", "动不了", "weak", "weakness", "cannot move", "can't move"]
+    speech_keywords = [
+        "讲话不清",
+        "说话不清",
+        "口齿不清",
+        "含糊",
+        "说不清",
+        "slurred",
+        "speech is unclear",
+    ]
+    speech_language_keywords = [
+        *speech_keywords,
+        "表达困难",
+        "表达有点困难",
+        "说不出话",
+        "不会说话",
+        "说话慢",
+        "说话越来越慢",
+        "trouble speaking",
+        "trouble expressing",
+        "cannot get words out",
+        "can't get words out",
+        "cannot speak",
+        "can't speak",
+        "aphasia",
+    ]
+    facial_keywords = ["嘴歪", "面瘫", "脸歪", "facial droop", "face droop", "droopy", "drooping"]
     confusion_keywords = ["糊涂", "混乱", "不认人", "confusion", "disoriented"]
     seizure_keywords = ["抽搐", "癫痫", "seizure", "convulsion"]
     loc_keywords = ["昏迷", "失去意识", "晕倒", "unconscious", "passed out"]
@@ -168,7 +247,18 @@ def _heuristic_extract(user_input: str) -> ExtractedSymptoms:
     injury_keywords = ["撞到头", "头部受伤", "head injury"]
     incontinence_keywords = ["失禁", "大小便失禁", "incontinence"]
     memory_keywords = ["记忆", "忘事", "记不住", "memory"]
-    word_finding_keywords = ["找词困难", "叫不出名字", "word finding"]
+    word_finding_keywords = [
+        "找词困难",
+        "叫不出名字",
+        "表达困难",
+        "表达有点困难",
+        "说不出话",
+        "不会说话",
+        "word finding",
+        "word-finding",
+        "cannot get words out",
+        "can't get words out",
+    ]
     tremor_keywords = ["手抖", "震颤", "tremor"]
     stiffness_keywords = ["僵硬", "stiffness"]
     hallucination_keywords = ["幻觉", "看到不存在", "hallucination"]
@@ -176,6 +266,8 @@ def _heuristic_extract(user_input: str) -> ExtractedSymptoms:
 
     if _has_any(text, sudden_keywords):
         onset = Onset.SUDDEN
+    elif _has_any(text, chronic_keywords):
+        onset = Onset.CHRONIC
     elif _has_any(text, gradual_keywords):
         onset = Onset.GRADUAL
     else:
@@ -197,7 +289,9 @@ def _heuristic_extract(user_input: str) -> ExtractedSymptoms:
 
     weakness_one_side = _has_any(text, weakness_keywords) and laterality == Laterality.ONE_SIDE
     facial_droop = _has_any(text, facial_keywords)
-    slurred_speech = _has_any(text, speech_keywords)
+    slurred_speech = False if is_expression_request else _has_any(text, speech_keywords)
+    word_finding_difficulty = False if is_expression_request else _has_any(text, word_finding_keywords)
+    speech_language_symptom = False if is_expression_request else _has_any(text, speech_language_keywords)
     acute_confusion = _has_any(text, confusion_keywords)
     seizure = _has_any(text, seizure_keywords)
     loss_of_consciousness = _has_any(text, loc_keywords)
@@ -209,12 +303,12 @@ def _heuristic_extract(user_input: str) -> ExtractedSymptoms:
     head_injury = _has_any(text, injury_keywords)
     incontinence = _has_any(text, incontinence_keywords)
 
-    stroke_fast = weakness_one_side or facial_droop or slurred_speech
+    stroke_fast = weakness_one_side or facial_droop or (slurred_speech and onset == Onset.SUDDEN)
 
     symptom_types: list[str] = []
     if weakness_one_side or gait_imbalance or _has_any(text, tremor_keywords):
         symptom_types.append("motor")
-    if slurred_speech or _has_any(text, word_finding_keywords):
+    if speech_language_symptom or word_finding_difficulty:
         symptom_types.append("speech")
     if acute_confusion or _has_any(text, memory_keywords):
         symptom_types.append("cognitive")
@@ -223,7 +317,7 @@ def _heuristic_extract(user_input: str) -> ExtractedSymptoms:
 
     return ExtractedSymptoms(
         raw_input=user_input,
-        symptom_type=symptom_types,
+        symptom_type=_clean_symptom_types(symptom_types, remove_speech=is_expression_request),
         primary_symptom=user_input[:80],
         onset=onset,
         laterality=laterality,
@@ -246,7 +340,7 @@ def _heuristic_extract(user_input: str) -> ExtractedSymptoms:
             stroke_beFAST=stroke_fast,
         ),
         memory_concern=_has_any(text, memory_keywords),
-        word_finding_difficulty=_has_any(text, word_finding_keywords),
+        word_finding_difficulty=word_finding_difficulty,
         disorientation=acute_confusion,
         tremor_present=_has_any(text, tremor_keywords),
         falls_present=new_falls,

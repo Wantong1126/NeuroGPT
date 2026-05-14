@@ -22,6 +22,16 @@ high_risk:
         - laterality: "one_side"
         - OR: [slurred_speech, word_finding_difficulty, no_clear_speech]
 
+  - id: "SPEECH_WITH_EMERGENCY_FEATURES"
+    name: "Speech/language disturbance with emergency features"
+    description: "Speech/language difficulty plus focal neurological or emergency features"
+    conditions:
+      onset_in: ["sudden", "unknown"]
+      requires_all: true
+      checks:
+        - OR: [slurred_speech, word_finding_difficulty, speech_language_symptom]
+        - OR: [weakness_one_side, facial_droop, focal_numbness, vision_loss, seizure, loss_of_consciousness, head_injury, acute_confusion, severe_headache]
+
   - id: "SUDDEN_FACIAL_DROOP"
     name: "Sudden facial droop"
     description: "Sudden one-sided facial droop is a classic stroke sign"
@@ -38,10 +48,9 @@ high_risk:
     description: "New-onset slurred or absent speech"
     conditions:
       onset: "sudden"
-      requires_all: false
+      requires_all: true
       checks:
-        - slurred_speech: true
-        - OR: [word_finding_difficulty, inability_to_speak, confusion_language]
+        - OR: [slurred_speech, word_finding_difficulty, speech_language_symptom, inability_to_speak, confusion_language]
 
   - id: "SEIZURE"
     name: "Seizure with neurological symptoms"
@@ -114,6 +123,24 @@ high_risk:
 # MEDIUM RISK — Urgent medical review within 24-48h
 # ─────────────────────────────────────────────
 medium_risk:
+
+  - id: "GRADUAL_SPEECH_LANGUAGE_REVIEW"
+    name: "Gradual speech/language difficulty"
+    description: "Gradual speech or language difficulty without acute red flags needs clinical review"
+    conditions:
+      onset: "gradual"
+      requires_all: true
+      checks:
+        - OR: [slurred_speech, word_finding_difficulty, speech_language_symptom]
+
+  - id: "CHRONIC_SPEECH_LANGUAGE_REVIEW"
+    name: "Chronic speech/language difficulty"
+    description: "Chronic speech or language difficulty without acute red flags needs clinical review"
+    conditions:
+      onset: "chronic"
+      requires_all: true
+      checks:
+        - OR: [slurred_speech, word_finding_difficulty, speech_language_symptom]
 
   - id: "PROGRESSIVE_GAIT"
     name: "New progressive gait instability"
