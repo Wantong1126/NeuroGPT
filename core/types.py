@@ -29,6 +29,7 @@ class ActionLevel(str, Enum):
     """Concrete action levels — matches Executive Plan Step 1.4."""
     EMERGENCY_NOW = "emergency_now"        # Call 120/999/911
     SAME_DAY_REVIEW = "same_day_review"   # See doctor today
+    PROMPT_CLINICAL_REVIEW = "prompt_clinical_review"
     PROMPT_FOLLOW_UP = "prompt_follow_up"  # Appointment within 48h–7d
     MONITOR = "monitor"                    # Watch with clear watch-outs
     EDUCATE = "educate"                    # Information only, no urgent action
@@ -38,6 +39,7 @@ class ActionTier(str, Enum):
     """Backward-compatible action enum for older rule-engine imports."""
     CALL_AMBULANCE = "emergency_now"
     SEE_DOCTOR_URGENT = "same_day_review"
+    PROMPT_CLINICAL_REVIEW = "prompt_clinical_review"
     SCHEDULE_ROUTINE = "monitor"
     MONITOR = "monitor"
     EDUCATE = "educate"

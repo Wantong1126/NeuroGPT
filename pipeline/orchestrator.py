@@ -61,7 +61,10 @@ def run_pipeline(session_id: str, user_input: str, state: CaseState | None = Non
     state.concern_level = concern.concern_level
     state.plain_language_rationale = concern.explanation
     state.why_not_normal_ageing = concern.why_not_normal_ageing
-    state.action_level = map_to_action(concern.concern_level)
+    if concern.concern_level.value == "unclear":
+        state.action_level = map_to_action(concern.concern_level)
+    else:
+        state.action_level = concern.risk_assessment.action
 
     elder_response = build_response(state)
     assistant_text = _build_assistant_text(

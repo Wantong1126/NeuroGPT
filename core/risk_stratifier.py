@@ -8,6 +8,7 @@ Applies YAML rule definitions to ExtractedSymptoms.
 from __future__ import annotations
 
 from core.models import (
+    ActionLevel,
     ActionTier,
     ExtractedSymptoms,
     RedFlags,
@@ -44,7 +45,7 @@ class RiskStratifier:
         if high_match:
             return self._build_assessment(
                 RiskLevel.HIGH,
-                ActionTier.CALL_AMBULANCE,
+                self._resolve_action(high_match, ActionTier.CALL_AMBULANCE),
                 high_match,
                 symptoms,
             )
@@ -54,7 +55,7 @@ class RiskStratifier:
         if medium_match:
             return self._build_assessment(
                 RiskLevel.MEDIUM,
-                ActionTier.SEE_DOCTOR_URGENT,
+                self._resolve_action(medium_match, ActionTier.SEE_DOCTOR_URGENT),
                 medium_match,
                 symptoms,
             )
@@ -64,13 +65,22 @@ class RiskStratifier:
         if low_match:
             return self._build_assessment(
                 RiskLevel.LOW,
-                ActionTier.SCHEDULE_ROUTINE,
+                self._resolve_action(low_match, ActionTier.SCHEDULE_ROUTINE),
                 low_match,
                 symptoms,
             )
 
         # 鈹€鈹€ Fallback: UNKNOWN 鈹€鈹€
         return self._build_unknown(symptoms)
+
+    def _resolve_action(self, rule: dict, default: ActionTier) -> ActionLevel | ActionTier:
+        action = rule.get("action")
+        if not action:
+            return default
+        try:
+            return ActionLevel(action)
+        except ValueError:
+            return default
 
     # 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
     # Section checker
@@ -228,7 +238,7 @@ class RiskStratifier:
     def _build_assessment(
         self,
         risk_level: RiskLevel,
-        action: ActionTier,
+        action: ActionLevel | ActionTier,
         rule: dict,
         symptoms: ExtractedSymptoms,
     ) -> RiskAssessment:

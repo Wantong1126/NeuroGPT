@@ -27,6 +27,14 @@ action_tiers:
       - action: "记录症状是否加重"
         reason: "便于后续判断病程。"
 
+  prompt_clinical_review:
+    urgency: "建议尽快预约医生评估。"
+    steps:
+      - action: "尽快预约门诊或相关专科评估"
+        reason: "症状需要专业评估，但目前未见急救级别红旗。"
+      - action: "记录症状开始时间、变化速度和是否影响日常生活"
+        reason: "这些信息有助于医生判断下一步检查和处理。"
+
   monitor:
     urgency: "目前可先观察，但如果加重应尽快就医。"
     steps:

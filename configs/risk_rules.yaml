@@ -142,6 +142,17 @@ medium_risk:
       checks:
         - OR: [slurred_speech, word_finding_difficulty, speech_language_symptom]
 
+  - id: "GRADUAL_MEMORY_COGNITIVE_REVIEW"
+    name: "Gradual memory or cognitive decline"
+    description: "Gradual memory or cognitive decline without acute confusion needs prompt clinical review"
+    action: "prompt_clinical_review"
+    conditions:
+      onset: "gradual"
+      progression: ["worsening", "first_time"]
+      requires_all: true
+      checks:
+        - memory_concern: true
+
   - id: "PROGRESSIVE_GAIT"
     name: "New progressive gait instability"
     description: "Gradually worsening walking difficulty or balance in elderly"
