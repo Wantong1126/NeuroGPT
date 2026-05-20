@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
+from core.observations import NormalizedObservation
 from core.types import Laterality, Onset, Progression
 
 
@@ -417,6 +418,211 @@ class NormalizedSymptomSignals:
 
 def _matches(text: str, phrases: list[str]) -> list[str]:
     return [phrase for phrase in phrases if phrase in text]
+
+
+def _duration_category(signals: NormalizedSymptomSignals) -> str:
+    if signals.transient_or_resolved_possible:
+        return "transient_resolved"
+    if signals.chronic_possible:
+        return "years_chronic"
+    if signals.gradual_possible:
+        return "weeks_months"
+    return "unknown"
+
+
+def _severity(signals: NormalizedSymptomSignals, family: str) -> str:
+    if family == "headache" and signals.severe_headache_possible:
+        return "severe"
+    if "有点" in signals.raw_text or "mild" in signals.raw_text.lower():
+        return "mild"
+    return "unknown"
+
+
+def _evidence(signals: NormalizedSymptomSignals, keys: list[str]) -> str:
+    phrases: list[str] = []
+    for key in keys:
+        phrases.extend(signals.matched_phrases.get(key, []))
+    return "；".join(dict.fromkeys(phrases)) or signals.raw_text
+
+
+def _associated_red_flags(signals: NormalizedSymptomSignals, family: str) -> list[str]:
+    associated: list[str] = []
+    if signals.weakness_possible and family != "weakness":
+        associated.append("weakness")
+    if signals.facial_asymmetry_possible and family != "facial_asymmetry":
+        associated.append("facial_droop")
+    if signals.speech_language_possible and family != "speech_language":
+        associated.append("speech_language")
+    if signals.confusion_awareness_possible and family != "confusion_awareness":
+        associated.append("acute_confusion")
+    if signals.sensory_possible and signals.laterality == Laterality.ONE_SIDE and family != "sensory":
+        associated.append("focal_numbness")
+    if signals.vision_loss_possible and family != "vision":
+        associated.append("vision_loss")
+    if signals.severe_headache_possible and family != "headache":
+        associated.append("severe_headache")
+    if signals.seizure_episode_possible and family != "seizure_episode":
+        associated.append("seizure")
+    if signals.loss_of_consciousness_possible and family != "loss_of_consciousness":
+        associated.append("loss_of_consciousness")
+    return associated
+
+
+def _base_observation(
+    signals: NormalizedSymptomSignals,
+    family: str,
+    strength: str,
+    evidence_keys: list[str],
+    *,
+    severity: str | None = None,
+    associated_red_flags: list[str] | None = None,
+) -> NormalizedObservation:
+    return NormalizedObservation(
+        raw_text=signals.raw_text,
+        symptom_family=family,
+        signal_strength=strength,
+        onset=signals.onset,
+        duration_category=_duration_category(signals),
+        laterality=signals.laterality,
+        progression=signals.progression,
+        severity_qualifier=severity or _severity(signals, family),
+        transient_or_resolved=signals.transient_or_resolved_possible,
+        associated_red_flags=associated_red_flags
+        if associated_red_flags is not None
+        else _associated_red_flags(signals, family),
+        evidence_text=_evidence(signals, evidence_keys),
+        source="deterministic",
+        confidence=0.95 if strength == "true_red_flag" else 0.85,
+    )
+
+
+def observations_from_signals(signals: NormalizedSymptomSignals) -> list[NormalizedObservation]:
+    """Build explicit observations from deterministic normalized signals."""
+    observations: list[NormalizedObservation] = []
+
+    if signals.weakness_possible:
+        strength = "red_flag_candidate" if signals.laterality == Laterality.ONE_SIDE else "possible"
+        if signals.onset == Onset.SUDDEN and signals.laterality == Laterality.ONE_SIDE:
+            strength = "red_flag_candidate"
+        observations.append(_base_observation(signals, "weakness", strength, ["weakness"]))
+
+    if signals.facial_asymmetry_possible:
+        observations.append(
+            _base_observation(signals, "facial_asymmetry", "red_flag_candidate", ["facial_asymmetry"])
+        )
+
+    if signals.sensory_possible:
+        strength = "possible"
+        if signals.laterality == Laterality.ONE_SIDE:
+            strength = "red_flag_candidate"
+        if (
+            signals.onset == Onset.SUDDEN
+            and signals.laterality == Laterality.ONE_SIDE
+            and signals.speech_language_possible
+        ):
+            strength = "true_red_flag"
+        observations.append(_base_observation(signals, "sensory", strength, ["sensory"]))
+
+    if signals.speech_language_possible:
+        speech_flags: list[str] = []
+        if signals.speech_slurring_possible:
+            speech_flags.append("slurred_speech")
+        if signals.word_finding_possible:
+            speech_flags.append("word_finding_difficulty")
+        observations.append(
+            _base_observation(
+                signals,
+                "speech_language",
+                "red_flag_candidate",
+                ["speech_language", "speech_slur", "word_finding"],
+                associated_red_flags=[*speech_flags, *_associated_red_flags(signals, "speech_language")],
+            )
+        )
+
+    if signals.confusion_awareness_possible:
+        observations.append(
+            _base_observation(
+                signals,
+                "confusion_awareness",
+                "red_flag_candidate",
+                ["confusion_awareness"],
+            )
+        )
+
+    if signals.memory_cognitive_possible:
+        observations.append(
+            _base_observation(signals, "memory_cognitive", "possible", ["memory_cognitive"])
+        )
+
+    if signals.gait_balance_possible:
+        observations.append(_base_observation(signals, "gait_balance", "possible", ["gait_balance"]))
+
+    if signals.headache_possible:
+        strength = "true_red_flag" if signals.severe_headache_possible else "possible"
+        associated = _associated_red_flags(signals, "headache")
+        if strength == "possible" and associated:
+            strength = "red_flag_candidate"
+        observations.append(
+            _base_observation(
+                signals,
+                "headache",
+                strength,
+                ["headache", "severe_headache"],
+                severity="severe" if signals.severe_headache_possible else _severity(signals, "headache"),
+                associated_red_flags=associated,
+            )
+        )
+
+    if signals.vision_change_possible:
+        observations.append(
+            _base_observation(
+                signals,
+                "vision",
+                "true_red_flag" if signals.vision_loss_possible else "possible",
+                ["vision_change", "vision_loss"],
+            )
+        )
+
+    if signals.seizure_episode_possible:
+        observations.append(_base_observation(signals, "seizure_episode", "true_red_flag", ["seizure"]))
+
+    if signals.loss_of_consciousness_possible:
+        observations.append(
+            _base_observation(
+                signals,
+                "loss_of_consciousness",
+                "true_red_flag",
+                ["loss_of_consciousness"],
+            )
+        )
+
+    if signals.fall_head_injury_possible:
+        fall_flags: list[str] = []
+        if signals.fall_possible:
+            fall_flags.append("fall")
+        if signals.head_injury_possible:
+            fall_flags.append("head_injury")
+        observations.append(
+            _base_observation(
+                signals,
+                "fall_head_injury",
+                "red_flag_candidate" if signals.head_injury_possible else "possible",
+                ["fall", "head_injury"],
+                associated_red_flags=fall_flags,
+            )
+        )
+
+    if signals.fatigue_possible and not signals.weakness_possible:
+        observations.append(_base_observation(signals, "fatigue", "possible", ["fatigue"]))
+
+    if not observations:
+        observations.append(_base_observation(signals, "other", "possible", []))
+
+    return observations
+
+
+def normalize_observations(user_input: str) -> list[NormalizedObservation]:
+    return observations_from_signals(normalize_symptoms(user_input))
 
 
 def normalize_symptoms(user_input: str) -> NormalizedSymptomSignals:

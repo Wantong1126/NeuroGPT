@@ -6,10 +6,15 @@ Uses a provider-selected extractor and deterministic lay-language normalization.
 from __future__ import annotations
 
 from core.models import ExtractedSymptoms, Laterality, Onset, Progression, RedFlags
+from core.observations import NormalizedObservation
 from core.config_loader import load_prompt_template
 from core.llm import call_structured
 from core.provider_settings import get_provider
-from modules.symptom_normalizer import NormalizedSymptomSignals, normalize_symptoms
+from modules.symptom_normalizer import (
+    NormalizedSymptomSignals,
+    normalize_symptoms,
+    observations_from_signals,
+)
 
 SYSTEM_PROMPT = (
     "You are a clinical symptom-extraction assistant for a medical education tool "
@@ -51,9 +56,10 @@ SCHEMA = """
 def extract_symptoms(user_input: str) -> ExtractedSymptoms:
     """Main entry point."""
     normalized = normalize_symptoms(user_input)
+    observations = observations_from_signals(normalized)
     provider = get_provider("symptom_extractor")
     if provider != "openai_compatible":
-        return _from_normalized(user_input, normalized)
+        return _from_observations(user_input, normalized, observations)
 
     template = load_prompt_template("symptom_extractor") or "Extract clinical features from: {user_input}"
     user_prompt = template.format(user_input=user_input)
@@ -61,9 +67,9 @@ def extract_symptoms(user_input: str) -> ExtractedSymptoms:
     try:
         raw = call_structured(user_prompt, SYSTEM_PROMPT, SCHEMA)
     except Exception:
-        return _from_normalized(user_input, normalized)
+        return _from_observations(user_input, normalized, observations)
 
-    return _parse_extracted(raw, user_input, normalized)
+    return _parse_extracted(raw, user_input, normalized, observations)
 
 
 def _bool(value) -> bool:
@@ -85,9 +91,72 @@ def _enum_or_normalized(value: str, mapping: dict[str, object], normalized_value
     return parsed
 
 
-def _merge_symptom_types(raw_types: list[str], normalized: NormalizedSymptomSignals) -> list[str]:
+def _has_family(observations: list[NormalizedObservation], family: str) -> bool:
+    return any(obs.symptom_family == family for obs in observations)
+
+
+def _has_true_family(observations: list[NormalizedObservation], family: str) -> bool:
+    return any(
+        obs.symptom_family == family and obs.signal_strength == "true_red_flag"
+        for obs in observations
+    )
+
+
+def _associated(observations: list[NormalizedObservation], flag: str) -> bool:
+    return any(flag in obs.associated_red_flags for obs in observations)
+
+
+def _any_transient_or_resolved(observations: list[NormalizedObservation]) -> bool:
+    return any(obs.transient_or_resolved for obs in observations)
+
+
+def _aggregate_enum(observations: list[NormalizedObservation], attr: str, unknown):
+    preferred_values = [
+        "sudden",
+        "chronic",
+        "gradual",
+        "one_side",
+        "both_sides",
+        "central",
+        "improving",
+        "stable",
+        "worsening",
+        "first_time",
+    ]
+    for preferred in preferred_values:
+        for obs in observations:
+            value = getattr(obs, attr)
+            if getattr(value, "value", None) == preferred:
+                return value
+    return unknown
+
+
+def _observation_symptom_types(observations: list[NormalizedObservation]) -> list[str]:
+    mapped: list[str] = []
+    family_to_type = {
+        "weakness": "motor",
+        "facial_asymmetry": "motor",
+        "speech_language": "speech",
+        "sensory": "sensory",
+        "vision": "sensory",
+        "gait_balance": "gait",
+        "confusion_awareness": "cognitive",
+        "memory_cognitive": "cognitive",
+    }
+    for obs in observations:
+        symptom_type = family_to_type.get(obs.symptom_family, "other")
+        if symptom_type not in mapped:
+            mapped.append(symptom_type)
+    return mapped or ["other"]
+
+
+def _merge_symptom_types(
+    raw_types: list[str],
+    observations: list[NormalizedObservation],
+    normalized: NormalizedSymptomSignals,
+) -> list[str]:
     merged: list[str] = []
-    for symptom_type in [*raw_types, *normalized.symptom_types()]:
+    for symptom_type in [*raw_types, *_observation_symptom_types(observations)]:
         if symptom_type == "speech" and normalized.non_neurological_expression_request:
             continue
         if symptom_type not in merged:
@@ -97,29 +166,33 @@ def _merge_symptom_types(raw_types: list[str], normalized: NormalizedSymptomSign
 
 def _build_red_flags(
     rf_data: dict,
+    observations: list[NormalizedObservation],
     normalized: NormalizedSymptomSignals,
     onset: Onset,
     laterality: Laterality,
 ) -> RedFlags:
     weakness_one_side = (
         _bool(rf_data.get("weakness_one_side"))
-        and not (normalized.fatigue_possible and not normalized.weakness_possible)
-    ) or (normalized.weakness_possible and laterality == Laterality.ONE_SIDE)
-    facial_droop = _bool(rf_data.get("facial_droop")) or normalized.facial_asymmetry_possible
+        and not (_has_family(observations, "fatigue") and not _has_family(observations, "weakness"))
+    ) or (_has_family(observations, "weakness") and laterality == Laterality.ONE_SIDE)
+    facial_droop = _bool(rf_data.get("facial_droop")) or _has_family(observations, "facial_asymmetry")
     slurred_speech = False if normalized.non_neurological_expression_request else (
-        _bool(rf_data.get("slurred_speech")) or normalized.speech_slurring_possible
+        _bool(rf_data.get("slurred_speech")) or _associated(observations, "slurred_speech")
     )
-    word_finding = False if normalized.non_neurological_expression_request else normalized.word_finding_possible
+    word_finding = False if normalized.non_neurological_expression_request else _associated(
+        observations,
+        "word_finding_difficulty",
+    )
     focal_numbness = (
         _bool(rf_data.get("focal_numbness"))
-        and not (normalized.sensory_possible and laterality != Laterality.ONE_SIDE)
-    ) or (normalized.sensory_possible and laterality == Laterality.ONE_SIDE)
+        and not (_has_family(observations, "sensory") and laterality != Laterality.ONE_SIDE)
+    ) or (_has_family(observations, "sensory") and laterality == Laterality.ONE_SIDE)
     vision_loss = _raw_flag_unless_possible_only(
         rf_data.get("vision_loss"),
-        normalized.vision_change_possible,
-        normalized.vision_loss_possible,
+        _has_family(observations, "vision"),
+        _has_true_family(observations, "vision"),
     )
-    headache_with_neuro_red_flags = normalized.headache_possible and any(
+    headache_with_neuro_red_flags = _has_family(observations, "headache") and any(
         [
             weakness_one_side,
             facial_droop,
@@ -127,22 +200,23 @@ def _build_red_flags(
             word_finding,
             focal_numbness,
             vision_loss,
-            normalized.confusion_awareness_possible,
+            _has_family(observations, "confusion_awareness"),
         ]
     )
     severe_headache = _raw_flag_unless_possible_only(
         rf_data.get("severe_headache"),
-        normalized.headache_possible,
-        normalized.severe_headache_possible or headache_with_neuro_red_flags,
+        _has_family(observations, "headache"),
+        _has_true_family(observations, "headache") or headache_with_neuro_red_flags,
     )
 
     stroke_befast = _bool(rf_data.get("stroke_beFAST")) or any(
         [
             weakness_one_side,
             facial_droop,
-            onset == Onset.SUDDEN and (slurred_speech or word_finding or normalized.speech_language_possible),
+            onset == Onset.SUDDEN
+            and (slurred_speech or word_finding or _has_family(observations, "speech_language")),
             onset == Onset.SUDDEN and vision_loss,
-            onset == Onset.SUDDEN and normalized.gait_balance_possible,
+            onset == Onset.SUDDEN and _has_family(observations, "gait_balance"),
         ]
     )
 
@@ -151,16 +225,16 @@ def _build_red_flags(
         facial_droop=facial_droop,
         slurred_speech=slurred_speech,
         sudden_onset=_bool(rf_data.get("sudden_onset")) or onset == Onset.SUDDEN,
-        acute_confusion=_bool(rf_data.get("acute_confusion")) or normalized.confusion_awareness_possible,
-        seizure=_bool(rf_data.get("seizure")) or normalized.seizure_episode_possible,
+        acute_confusion=_bool(rf_data.get("acute_confusion")) or _has_family(observations, "confusion_awareness"),
+        seizure=_bool(rf_data.get("seizure")) or _has_family(observations, "seizure_episode"),
         loss_of_consciousness=_bool(rf_data.get("loss_of_consciousness"))
-        or normalized.loss_of_consciousness_possible,
+        or _has_family(observations, "loss_of_consciousness"),
         severe_headache=severe_headache,
         vision_loss=vision_loss,
-        gait_imbalance=_bool(rf_data.get("gait_imbalance")) or normalized.gait_balance_possible,
+        gait_imbalance=_bool(rf_data.get("gait_imbalance")) or _has_family(observations, "gait_balance"),
         focal_numbness=focal_numbness,
-        new_falls=_bool(rf_data.get("new_falls")) or normalized.fall_possible,
-        head_injury=_bool(rf_data.get("head_injury")) or normalized.head_injury_possible,
+        new_falls=_bool(rf_data.get("new_falls")) or _associated(observations, "fall"),
+        head_injury=_bool(rf_data.get("head_injury")) or _associated(observations, "head_injury"),
         incontinence=_bool(rf_data.get("incontinence")) or normalized.incontinence_possible,
         stroke_beFAST=False if normalized.non_neurological_expression_request else stroke_befast,
     )
@@ -170,6 +244,7 @@ def _parse_extracted(
     raw: dict,
     user_input: str,
     normalized: NormalizedSymptomSignals,
+    observations: list[NormalizedObservation],
 ) -> ExtractedSymptoms:
     """Parse LLM JSON output into Pydantic model and overlay normalized signals."""
     onset_map = {
@@ -193,23 +268,26 @@ def _parse_extracted(
         "unknown": Progression.UNKNOWN,
     }
 
-    onset = _enum_or_normalized(raw.get("onset", "unknown"), onset_map, normalized.onset)
+    observation_onset = _aggregate_enum(observations, "onset", Onset.UNKNOWN)
+    observation_laterality = _aggregate_enum(observations, "laterality", Laterality.UNKNOWN)
+    observation_progression = _aggregate_enum(observations, "progression", Progression.UNKNOWN)
+    onset = _enum_or_normalized(raw.get("onset", "unknown"), onset_map, observation_onset)
     laterality = _enum_or_normalized(
         raw.get("laterality", "unknown"),
         laterality_map,
-        normalized.laterality,
+        observation_laterality,
     )
     progression = _enum_or_normalized(
         raw.get("progression", "unknown"),
         progression_map,
-        normalized.progression,
+        observation_progression,
     )
     rf_data = raw.get("red_flags", {})
-    red_flags = _build_red_flags(rf_data, normalized, onset, laterality)
+    red_flags = _build_red_flags(rf_data, observations, normalized, onset, laterality)
 
     return ExtractedSymptoms(
         raw_input=user_input,
-        symptom_type=_merge_symptom_types(raw.get("symptom_type", []), normalized),
+        symptom_type=_merge_symptom_types(raw.get("symptom_type", []), observations, normalized),
         primary_symptom=raw.get("primary_symptom", user_input),
         onset=onset,
         laterality=laterality,
@@ -217,19 +295,19 @@ def _parse_extracted(
         progression=progression,
         frequency_text=raw.get("frequency_text", ""),
         red_flags=red_flags,
-        weakness_possible=normalized.weakness_possible,
-        sensory_possible=normalized.sensory_possible,
-        headache_possible=normalized.headache_possible,
-        vision_change_possible=normalized.vision_change_possible,
-        transient_or_resolved=normalized.transient_or_resolved_possible,
-        memory_concern=_bool(raw.get("memory_concern")) or normalized.memory_cognitive_possible,
+        weakness_possible=_has_family(observations, "weakness"),
+        sensory_possible=_has_family(observations, "sensory"),
+        headache_possible=_has_family(observations, "headache"),
+        vision_change_possible=_has_family(observations, "vision"),
+        transient_or_resolved=_any_transient_or_resolved(observations),
+        memory_concern=_bool(raw.get("memory_concern")) or _has_family(observations, "memory_cognitive"),
         word_finding_difficulty=False
         if normalized.non_neurological_expression_request
-        else (_bool(raw.get("word_finding_difficulty")) or normalized.word_finding_possible),
-        disorientation=_bool(raw.get("disorientation")) or normalized.confusion_awareness_possible,
+        else (_bool(raw.get("word_finding_difficulty")) or _associated(observations, "word_finding_difficulty")),
+        disorientation=_bool(raw.get("disorientation")) or _has_family(observations, "confusion_awareness"),
         tremor_present=_bool(raw.get("tremor_present")) or normalized.tremor_possible,
-        falls_present=_bool(raw.get("falls_present")) or normalized.fall_possible,
-        gait_difficulty=_bool(raw.get("gait_difficulty")) or normalized.gait_balance_possible,
+        falls_present=_bool(raw.get("falls_present")) or _associated(observations, "fall"),
+        gait_difficulty=_bool(raw.get("gait_difficulty")) or _has_family(observations, "gait_balance"),
         stiffness=_bool(raw.get("stiffness")) or normalized.stiffness_possible,
         sleep_disturbance=_bool(raw.get("sleep_disturbance")),
         apathy=_bool(raw.get("apathy")),
@@ -243,34 +321,38 @@ def _parse_extracted(
     )
 
 
-def _from_normalized(user_input: str, normalized: NormalizedSymptomSignals) -> ExtractedSymptoms:
-    """Build deterministic extraction output directly from normalized lay-language signals."""
-    onset = normalized.onset
-    laterality = normalized.laterality
-    progression = normalized.progression
-    red_flags = _build_red_flags({}, normalized, onset, laterality)
+def _from_observations(
+    user_input: str,
+    normalized: NormalizedSymptomSignals,
+    observations: list[NormalizedObservation],
+) -> ExtractedSymptoms:
+    """Build deterministic extraction output from structured observations."""
+    onset = _aggregate_enum(observations, "onset", Onset.UNKNOWN)
+    laterality = _aggregate_enum(observations, "laterality", Laterality.UNKNOWN)
+    progression = _aggregate_enum(observations, "progression", Progression.UNKNOWN)
+    red_flags = _build_red_flags({}, observations, normalized, onset, laterality)
 
     return ExtractedSymptoms(
         raw_input=user_input,
-        symptom_type=_merge_symptom_types([], normalized),
+        symptom_type=_merge_symptom_types([], observations, normalized),
         primary_symptom=user_input[:80],
         onset=onset,
         laterality=laterality,
         progression=progression,
         red_flags=red_flags,
-        weakness_possible=normalized.weakness_possible,
-        sensory_possible=normalized.sensory_possible,
-        headache_possible=normalized.headache_possible,
-        vision_change_possible=normalized.vision_change_possible,
-        transient_or_resolved=normalized.transient_or_resolved_possible,
-        memory_concern=normalized.memory_cognitive_possible,
+        weakness_possible=_has_family(observations, "weakness"),
+        sensory_possible=_has_family(observations, "sensory"),
+        headache_possible=_has_family(observations, "headache"),
+        vision_change_possible=_has_family(observations, "vision"),
+        transient_or_resolved=_any_transient_or_resolved(observations),
+        memory_concern=_has_family(observations, "memory_cognitive"),
         word_finding_difficulty=False
         if normalized.non_neurological_expression_request
-        else normalized.word_finding_possible,
-        disorientation=normalized.confusion_awareness_possible,
+        else _associated(observations, "word_finding_difficulty"),
+        disorientation=_has_family(observations, "confusion_awareness"),
         tremor_present=normalized.tremor_possible,
-        falls_present=normalized.fall_possible,
-        gait_difficulty=normalized.gait_balance_possible,
+        falls_present=_associated(observations, "fall"),
+        gait_difficulty=_has_family(observations, "gait_balance"),
         stiffness=normalized.stiffness_possible,
         hallucinations=normalized.hallucination_possible,
         personality_change=normalized.personality_change_possible,
