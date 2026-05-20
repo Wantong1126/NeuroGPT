@@ -445,6 +445,52 @@ def _evidence(signals: NormalizedSymptomSignals, keys: list[str]) -> str:
     return "；".join(dict.fromkeys(phrases)) or signals.raw_text
 
 
+def _evidence_phrases(signals: NormalizedSymptomSignals, keys: list[str]) -> list[str]:
+    phrases: list[str] = []
+    for key in keys:
+        phrases.extend(signals.matched_phrases.get(key, []))
+    return list(dict.fromkeys(phrases))
+
+
+def _segment_for_evidence(text: str, evidence_phrases: list[str]) -> str:
+    positions = [text.find(phrase) for phrase in evidence_phrases if phrase and phrase in text]
+    if not positions:
+        return text
+
+    position = min(pos for pos in positions if pos >= 0)
+    separators = ["，", ",", "；", ";", "。", ".", "但", "但是", "不过", "but"]
+    start = 0
+    end = len(text)
+    for separator in separators:
+        before = text.rfind(separator, 0, position)
+        if before >= 0:
+            start = max(start, before + len(separator))
+        after = text.find(separator, position)
+        if after >= 0:
+            end = min(end, after)
+    return text[start:end].strip() or text
+
+
+def _context_signals(signals: NormalizedSymptomSignals, evidence_keys: list[str]) -> NormalizedSymptomSignals:
+    segment = _segment_for_evidence(signals.raw_text, _evidence_phrases(signals, evidence_keys))
+    if segment == signals.raw_text:
+        return signals
+    return normalize_symptoms(segment)
+
+
+def _observation_progression(
+    signals: NormalizedSymptomSignals,
+    context: NormalizedSymptomSignals,
+) -> Progression:
+    if context.transient_or_resolved_possible:
+        return Progression.IMPROVING
+    if context.stable_possible or signals.stable_possible:
+        return Progression.STABLE
+    if context.worsening_possible or signals.worsening_possible:
+        return Progression.WORSENING
+    return context.progression
+
+
 def _associated_red_flags(signals: NormalizedSymptomSignals, family: str) -> list[str]:
     associated: list[str] = []
     if signals.weakness_possible and family != "weakness":
@@ -477,16 +523,17 @@ def _base_observation(
     severity: str | None = None,
     associated_red_flags: list[str] | None = None,
 ) -> NormalizedObservation:
+    context = _context_signals(signals, evidence_keys)
     return NormalizedObservation(
         raw_text=signals.raw_text,
         symptom_family=family,
         signal_strength=strength,
-        onset=signals.onset,
-        duration_category=_duration_category(signals),
-        laterality=signals.laterality,
-        progression=signals.progression,
+        onset=context.onset,
+        duration_category=_duration_category(context),
+        laterality=context.laterality,
+        progression=_observation_progression(signals, context),
         severity_qualifier=severity or _severity(signals, family),
-        transient_or_resolved=signals.transient_or_resolved_possible,
+        transient_or_resolved=context.transient_or_resolved_possible,
         associated_red_flags=associated_red_flags
         if associated_red_flags is not None
         else _associated_red_flags(signals, family),

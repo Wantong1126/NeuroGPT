@@ -3,6 +3,9 @@
 
 from __future__ import annotations
 
+from core.observations import NormalizedObservation
+from modules import symptom_extractor
+from modules.symptom_extractor import extract_symptoms
 from modules.symptom_normalizer import normalize_observations
 from pipeline.orchestrator import run_pipeline
 
@@ -76,4 +79,38 @@ def test_fatigue_observation_stays_non_emergency() -> None:
     _state, output = _run_text("今天有点累，没什么别的症状")
 
     assert obs.signal_strength == "possible"
+    assert output.action_level != "emergency_now"
+
+
+def test_extract_symptoms_deterministic_path_uses_observations(monkeypatch) -> None:
+    observation = NormalizedObservation(
+        raw_text="synthetic observation only",
+        symptom_family="vision",
+        signal_strength="true_red_flag",
+        evidence_text="synthetic vision loss",
+    )
+    monkeypatch.setattr(symptom_extractor, "normalize_observations", lambda _text: [observation])
+
+    symptoms = extract_symptoms("plain text without known phrases")
+
+    assert symptoms.vision_change_possible is True
+    assert symptoms.red_flags.vision_loss is True
+    assert "synthetic vision loss" in symptoms.duration_text
+    assert "observations" in symptoms.llm_raw_json
+
+
+def test_mixed_transient_sensory_and_gait_observations_stay_separate() -> None:
+    text = "刚才右手麻了一下，现在好了，但最近走路不稳"
+    observations = normalize_observations(text)
+    sensory = next(obs for obs in observations if obs.symptom_family == "sensory")
+    gait = next(obs for obs in observations if obs.symptom_family == "gait_balance")
+    symptoms = extract_symptoms(text)
+    _state, output = _run_text(text)
+
+    assert sensory.duration_category == "transient_resolved"
+    assert sensory.transient_or_resolved is True
+    assert gait.transient_or_resolved is False
+    assert gait.duration_category != "transient_resolved"
+    assert symptoms.sensory_possible is True
+    assert symptoms.gait_difficulty is True
     assert output.action_level != "emergency_now"

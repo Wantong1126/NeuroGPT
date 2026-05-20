@@ -5,16 +5,14 @@ Uses a provider-selected extractor and deterministic lay-language normalization.
 """
 from __future__ import annotations
 
+import json
+
 from core.models import ExtractedSymptoms, Laterality, Onset, Progression, RedFlags
 from core.observations import NormalizedObservation
 from core.config_loader import load_prompt_template
 from core.llm import call_structured
 from core.provider_settings import get_provider
-from modules.symptom_normalizer import (
-    NormalizedSymptomSignals,
-    normalize_symptoms,
-    observations_from_signals,
-)
+from modules.symptom_normalizer import normalize_observations
 
 SYSTEM_PROMPT = (
     "You are a clinical symptom-extraction assistant for a medical education tool "
@@ -55,11 +53,12 @@ SCHEMA = """
 
 def extract_symptoms(user_input: str) -> ExtractedSymptoms:
     """Main entry point."""
-    normalized = normalize_symptoms(user_input)
-    observations = observations_from_signals(normalized)
     provider = get_provider("symptom_extractor")
     if provider != "openai_compatible":
-        return _from_observations(user_input, normalized, observations)
+        observations = normalize_observations(user_input)
+        return _from_observations(user_input, observations)
+
+    observations = normalize_observations(user_input)
 
     template = load_prompt_template("symptom_extractor") or "Extract clinical features from: {user_input}"
     user_prompt = template.format(user_input=user_input)
@@ -67,9 +66,9 @@ def extract_symptoms(user_input: str) -> ExtractedSymptoms:
     try:
         raw = call_structured(user_prompt, SYSTEM_PROMPT, SCHEMA)
     except Exception:
-        return _from_observations(user_input, normalized, observations)
+        return _from_observations(user_input, observations)
 
-    return _parse_extracted(raw, user_input, normalized, observations)
+    return _parse_extracted(raw, user_input, observations)
 
 
 def _bool(value) -> bool:
@@ -150,15 +149,25 @@ def _observation_symptom_types(observations: list[NormalizedObservation]) -> lis
     return mapped or ["other"]
 
 
+def _observation_evidence_text(observations: list[NormalizedObservation]) -> str:
+    evidence = [obs.evidence_text for obs in observations if obs.evidence_text]
+    return "；".join(dict.fromkeys(evidence))
+
+
+def _observation_audit(raw: dict, observations: list[NormalizedObservation]) -> str:
+    payload = {
+        "raw": raw,
+        "observations": [obs.model_dump(mode="json") for obs in observations],
+    }
+    return json.dumps(payload, ensure_ascii=False)
+
+
 def _merge_symptom_types(
     raw_types: list[str],
     observations: list[NormalizedObservation],
-    normalized: NormalizedSymptomSignals,
 ) -> list[str]:
     merged: list[str] = []
     for symptom_type in [*raw_types, *_observation_symptom_types(observations)]:
-        if symptom_type == "speech" and normalized.non_neurological_expression_request:
-            continue
         if symptom_type not in merged:
             merged.append(symptom_type)
     return merged or ["other"]
@@ -167,19 +176,20 @@ def _merge_symptom_types(
 def _build_red_flags(
     rf_data: dict,
     observations: list[NormalizedObservation],
-    normalized: NormalizedSymptomSignals,
     onset: Onset,
     laterality: Laterality,
 ) -> RedFlags:
     weakness_one_side = (
-        _bool(rf_data.get("weakness_one_side"))
+        _bool(rf_data.get("weakness_one_side")) and _has_family(observations, "weakness")
         and not (_has_family(observations, "fatigue") and not _has_family(observations, "weakness"))
     ) or (_has_family(observations, "weakness") and laterality == Laterality.ONE_SIDE)
-    facial_droop = _bool(rf_data.get("facial_droop")) or _has_family(observations, "facial_asymmetry")
-    slurred_speech = False if normalized.non_neurological_expression_request else (
-        _bool(rf_data.get("slurred_speech")) or _associated(observations, "slurred_speech")
-    )
-    word_finding = False if normalized.non_neurological_expression_request else _associated(
+    facial_droop = (
+        _bool(rf_data.get("facial_droop")) and _has_family(observations, "facial_asymmetry")
+    ) or _has_family(observations, "facial_asymmetry")
+    slurred_speech = (
+        _bool(rf_data.get("slurred_speech")) and _has_family(observations, "speech_language")
+    ) or _associated(observations, "slurred_speech")
+    word_finding = _associated(
         observations,
         "word_finding_difficulty",
     )
@@ -235,15 +245,14 @@ def _build_red_flags(
         focal_numbness=focal_numbness,
         new_falls=_bool(rf_data.get("new_falls")) or _associated(observations, "fall"),
         head_injury=_bool(rf_data.get("head_injury")) or _associated(observations, "head_injury"),
-        incontinence=_bool(rf_data.get("incontinence")) or normalized.incontinence_possible,
-        stroke_beFAST=False if normalized.non_neurological_expression_request else stroke_befast,
+        incontinence=_bool(rf_data.get("incontinence")),
+        stroke_beFAST=stroke_befast,
     )
 
 
 def _parse_extracted(
     raw: dict,
     user_input: str,
-    normalized: NormalizedSymptomSignals,
     observations: list[NormalizedObservation],
 ) -> ExtractedSymptoms:
     """Parse LLM JSON output into Pydantic model and overlay normalized signals."""
@@ -283,15 +292,15 @@ def _parse_extracted(
         observation_progression,
     )
     rf_data = raw.get("red_flags", {})
-    red_flags = _build_red_flags(rf_data, observations, normalized, onset, laterality)
+    red_flags = _build_red_flags(rf_data, observations, onset, laterality)
 
     return ExtractedSymptoms(
         raw_input=user_input,
-        symptom_type=_merge_symptom_types(raw.get("symptom_type", []), observations, normalized),
+        symptom_type=_merge_symptom_types(raw.get("symptom_type", []), observations),
         primary_symptom=raw.get("primary_symptom", user_input),
         onset=onset,
         laterality=laterality,
-        duration_text=raw.get("duration_text", ""),
+        duration_text=raw.get("duration_text", "") or _observation_evidence_text(observations),
         progression=progression,
         frequency_text=raw.get("frequency_text", ""),
         red_flags=red_flags,
@@ -301,43 +310,42 @@ def _parse_extracted(
         vision_change_possible=_has_family(observations, "vision"),
         transient_or_resolved=_any_transient_or_resolved(observations),
         memory_concern=_bool(raw.get("memory_concern")) or _has_family(observations, "memory_cognitive"),
-        word_finding_difficulty=False
-        if normalized.non_neurological_expression_request
-        else (_bool(raw.get("word_finding_difficulty")) or _associated(observations, "word_finding_difficulty")),
+        word_finding_difficulty=(
+            _bool(raw.get("word_finding_difficulty")) and _has_family(observations, "speech_language")
+        ) or _associated(observations, "word_finding_difficulty"),
         disorientation=_bool(raw.get("disorientation")) or _has_family(observations, "confusion_awareness"),
-        tremor_present=_bool(raw.get("tremor_present")) or normalized.tremor_possible,
+        tremor_present=_bool(raw.get("tremor_present")),
         falls_present=_bool(raw.get("falls_present")) or _associated(observations, "fall"),
         gait_difficulty=_bool(raw.get("gait_difficulty")) or _has_family(observations, "gait_balance"),
-        stiffness=_bool(raw.get("stiffness")) or normalized.stiffness_possible,
+        stiffness=_bool(raw.get("stiffness")),
         sleep_disturbance=_bool(raw.get("sleep_disturbance")),
         apathy=_bool(raw.get("apathy")),
-        hallucinations=_bool(raw.get("hallucinations")) or normalized.hallucination_possible,
-        personality_change=_bool(raw.get("personality_change"))
-        or normalized.personality_change_possible,
+        hallucinations=_bool(raw.get("hallucinations")),
+        personality_change=_bool(raw.get("personality_change")),
         denial_detected=_bool(raw.get("denial_detected")),
         fear_detected=_bool(raw.get("fear_detected")),
         delay_reason=raw.get("delay_reason", ""),
-        llm_raw_json=str(raw),
+        llm_raw_json=_observation_audit(raw, observations),
     )
 
 
 def _from_observations(
     user_input: str,
-    normalized: NormalizedSymptomSignals,
     observations: list[NormalizedObservation],
 ) -> ExtractedSymptoms:
     """Build deterministic extraction output from structured observations."""
     onset = _aggregate_enum(observations, "onset", Onset.UNKNOWN)
     laterality = _aggregate_enum(observations, "laterality", Laterality.UNKNOWN)
     progression = _aggregate_enum(observations, "progression", Progression.UNKNOWN)
-    red_flags = _build_red_flags({}, observations, normalized, onset, laterality)
+    red_flags = _build_red_flags({}, observations, onset, laterality)
 
     return ExtractedSymptoms(
         raw_input=user_input,
-        symptom_type=_merge_symptom_types([], observations, normalized),
+        symptom_type=_merge_symptom_types([], observations),
         primary_symptom=user_input[:80],
         onset=onset,
         laterality=laterality,
+        duration_text=_observation_evidence_text(observations),
         progression=progression,
         red_flags=red_flags,
         weakness_possible=_has_family(observations, "weakness"),
@@ -346,14 +354,9 @@ def _from_observations(
         vision_change_possible=_has_family(observations, "vision"),
         transient_or_resolved=_any_transient_or_resolved(observations),
         memory_concern=_has_family(observations, "memory_cognitive"),
-        word_finding_difficulty=False
-        if normalized.non_neurological_expression_request
-        else _associated(observations, "word_finding_difficulty"),
+        word_finding_difficulty=_associated(observations, "word_finding_difficulty"),
         disorientation=_has_family(observations, "confusion_awareness"),
-        tremor_present=normalized.tremor_possible,
         falls_present=_associated(observations, "fall"),
         gait_difficulty=_has_family(observations, "gait_balance"),
-        stiffness=normalized.stiffness_possible,
-        hallucinations=normalized.hallucination_possible,
-        personality_change=normalized.personality_change_possible,
+        llm_raw_json=_observation_audit({}, observations),
     )
