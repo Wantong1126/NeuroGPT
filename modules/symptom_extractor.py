@@ -70,6 +70,14 @@ def _bool(value) -> bool:
     return bool(value) if value is not None else False
 
 
+def _raw_flag_unless_possible_only(raw_value, possible_signal: bool, true_red_flag: bool) -> bool:
+    if true_red_flag:
+        return True
+    if possible_signal:
+        return False
+    return _bool(raw_value)
+
+
 def _enum_or_normalized(value: str, mapping: dict[str, object], normalized_value):
     parsed = mapping.get(value, None)
     if parsed is None or getattr(parsed, "value", None) == "unknown":
@@ -93,16 +101,39 @@ def _build_red_flags(
     onset: Onset,
     laterality: Laterality,
 ) -> RedFlags:
-    weakness_one_side = _bool(rf_data.get("weakness_one_side")) or (
-        normalized.weakness_possible and laterality == Laterality.ONE_SIDE
-    )
+    weakness_one_side = (
+        _bool(rf_data.get("weakness_one_side"))
+        and not (normalized.fatigue_possible and not normalized.weakness_possible)
+    ) or (normalized.weakness_possible and laterality == Laterality.ONE_SIDE)
     facial_droop = _bool(rf_data.get("facial_droop")) or normalized.facial_asymmetry_possible
     slurred_speech = False if normalized.non_neurological_expression_request else (
         _bool(rf_data.get("slurred_speech")) or normalized.speech_slurring_possible
     )
     word_finding = False if normalized.non_neurological_expression_request else normalized.word_finding_possible
-    focal_numbness = _bool(rf_data.get("focal_numbness")) or (
-        normalized.sensory_possible and laterality == Laterality.ONE_SIDE
+    focal_numbness = (
+        _bool(rf_data.get("focal_numbness"))
+        and not (normalized.sensory_possible and laterality != Laterality.ONE_SIDE)
+    ) or (normalized.sensory_possible and laterality == Laterality.ONE_SIDE)
+    vision_loss = _raw_flag_unless_possible_only(
+        rf_data.get("vision_loss"),
+        normalized.vision_change_possible,
+        normalized.vision_loss_possible,
+    )
+    headache_with_neuro_red_flags = normalized.headache_possible and any(
+        [
+            weakness_one_side,
+            facial_droop,
+            slurred_speech,
+            word_finding,
+            focal_numbness,
+            vision_loss,
+            normalized.confusion_awareness_possible,
+        ]
+    )
+    severe_headache = _raw_flag_unless_possible_only(
+        rf_data.get("severe_headache"),
+        normalized.headache_possible,
+        normalized.severe_headache_possible or headache_with_neuro_red_flags,
     )
 
     stroke_befast = _bool(rf_data.get("stroke_beFAST")) or any(
@@ -110,7 +141,7 @@ def _build_red_flags(
             weakness_one_side,
             facial_droop,
             onset == Onset.SUDDEN and (slurred_speech or word_finding or normalized.speech_language_possible),
-            onset == Onset.SUDDEN and normalized.vision_possible,
+            onset == Onset.SUDDEN and vision_loss,
             onset == Onset.SUDDEN and normalized.gait_balance_possible,
         ]
     )
@@ -124,8 +155,8 @@ def _build_red_flags(
         seizure=_bool(rf_data.get("seizure")) or normalized.seizure_episode_possible,
         loss_of_consciousness=_bool(rf_data.get("loss_of_consciousness"))
         or normalized.loss_of_consciousness_possible,
-        severe_headache=_bool(rf_data.get("severe_headache")) or normalized.headache_possible,
-        vision_loss=_bool(rf_data.get("vision_loss")) or normalized.vision_possible,
+        severe_headache=severe_headache,
+        vision_loss=vision_loss,
         gait_imbalance=_bool(rf_data.get("gait_imbalance")) or normalized.gait_balance_possible,
         focal_numbness=focal_numbness,
         new_falls=_bool(rf_data.get("new_falls")) or normalized.fall_possible,
@@ -186,6 +217,11 @@ def _parse_extracted(
         progression=progression,
         frequency_text=raw.get("frequency_text", ""),
         red_flags=red_flags,
+        weakness_possible=normalized.weakness_possible,
+        sensory_possible=normalized.sensory_possible,
+        headache_possible=normalized.headache_possible,
+        vision_change_possible=normalized.vision_change_possible,
+        transient_or_resolved=normalized.transient_or_resolved_possible,
         memory_concern=_bool(raw.get("memory_concern")) or normalized.memory_cognitive_possible,
         word_finding_difficulty=False
         if normalized.non_neurological_expression_request
@@ -222,6 +258,11 @@ def _from_normalized(user_input: str, normalized: NormalizedSymptomSignals) -> E
         laterality=laterality,
         progression=progression,
         red_flags=red_flags,
+        weakness_possible=normalized.weakness_possible,
+        sensory_possible=normalized.sensory_possible,
+        headache_possible=normalized.headache_possible,
+        vision_change_possible=normalized.vision_change_possible,
+        transient_or_resolved=normalized.transient_or_resolved_possible,
         memory_concern=normalized.memory_cognitive_possible,
         word_finding_difficulty=False
         if normalized.non_neurological_expression_request

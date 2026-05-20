@@ -66,10 +66,9 @@ high_risk:
     description: "Sudden worst headache of life with neurological signs"
     conditions:
       onset: "sudden"
-      requires_all: false
+      requires_all: true
       checks:
         - severe_headache: true
-        - OR: [focal_numbness, vision_loss, weakness_one_side, confusion]
 
   - id: "ACUTE_CONFUSION"
     name: "Acute confusional state / delirium"
@@ -85,7 +84,7 @@ high_risk:
     name: "Head injury with neurological symptoms"
     description: "Head trauma followed by any neurological symptoms"
     conditions:
-      requires_all: false
+      requires_all: true
       checks:
         - head_injury: true
         - OR: [confusion, loss_of_consciousness, weakness, vision_loss, seizure, severe_headache]
@@ -95,10 +94,9 @@ high_risk:
     description: "Sudden vision loss can indicate stroke or giant cell arteritis"
     conditions:
       onset: "sudden"
-      requires_all: false
+      requires_all: true
       checks:
         - vision_loss: true
-        - OR: [eye_pain, headache, scalp_tenderness, jaw_claudication]
 
   - id: "ONE_SIDE_WEAKNESS"
     name: "New one-sided weakness"
@@ -114,10 +112,9 @@ high_risk:
     name: "Loss of consciousness with neuro symptoms"
     description: "Fainting / LOC with neurological symptoms present"
     conditions:
-      requires_all: false
+      requires_all: true
       checks:
         - loss_of_consciousness: true
-        - OR: [confusion, weakness, speech_disturbance, seizure_after]
 
 # ─────────────────────────────────────────────
 # MEDIUM RISK — Urgent medical review within 24-48h
@@ -224,9 +221,9 @@ medium_risk:
     name: "Persistent headache with neurological features"
     description: "Headache plus neurological symptoms, not sudden thunderclap"
     conditions:
-      requires_all: false
+      requires_all: true
       checks:
-        - severe_headache: true
+        - headache_possible: true
         - OR: [vision_changes, weakness, numbness, nausea_vomiting, neck_stiffness]
 
   - id: "URINARY_INCONTINENCE_NEURO"

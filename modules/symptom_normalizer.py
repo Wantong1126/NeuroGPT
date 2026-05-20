@@ -122,6 +122,10 @@ FACIAL_ASYMMETRY_PHRASES = [
 SENSORY_PHRASES = [
     "麻木",
     "发麻",
+    "手麻",
+    "腿麻",
+    "脚麻",
+    "有点麻",
     "半边身子麻",
     "身子麻",
     "numb",
@@ -218,24 +222,68 @@ GAIT_BALANCE_PHRASES = [
 
 HEADACHE_PHRASES = [
     "头痛",
+    "有点头痛",
+    "头疼",
+    "有点头疼",
+    "headache",
+]
+
+SEVERE_HEADACHE_PHRASES = [
     "剧烈头痛",
     "爆炸样头痛",
     "雷击样头痛",
-    "headache",
+    "剧烈头疼",
+    "爆炸样头疼",
+    "雷击样头疼",
     "severe headache",
+    "worst headache",
+    "worst headache of life",
     "thunderclap",
 ]
 
-VISION_PHRASES = [
-    "看不见",
+VISION_CHANGE_PHRASES = [
     "看不清",
     "视力",
     "复视",
     "重影",
+    "vision change",
     "vision",
-    "vision loss",
-    "blind",
+    "blurred vision",
+    "blurry vision",
     "double vision",
+]
+
+VISION_LOSS_PHRASES = [
+    "看不见",
+    "突然看不见",
+    "vision loss",
+    "loss of vision",
+    "blind",
+    "blindness",
+]
+
+TRANSIENT_OR_RESOLVED_PHRASES = [
+    "一下",
+    "现在好了",
+    "站起来好了",
+    "站起来好多了",
+    "很快好了",
+    "好多了",
+    "缓解了",
+    "已经好了",
+    "resolved",
+    "went away",
+    "better now",
+]
+
+FATIGUE_PHRASES = [
+    "有点累",
+    "今天有点累",
+    "累",
+    "疲劳",
+    "乏力",
+    "tired",
+    "fatigue",
 ]
 
 SEIZURE_PHRASES = [
@@ -281,7 +329,9 @@ class NormalizedSymptomSignals:
     memory_cognitive_possible: bool = False
     gait_balance_possible: bool = False
     headache_possible: bool = False
-    vision_possible: bool = False
+    severe_headache_possible: bool = False
+    vision_change_possible: bool = False
+    vision_loss_possible: bool = False
     seizure_episode_possible: bool = False
     loss_of_consciousness_possible: bool = False
     fall_head_injury_possible: bool = False
@@ -301,6 +351,8 @@ class NormalizedSymptomSignals:
     chronic_possible: bool = False
     worsening_possible: bool = False
     stable_possible: bool = False
+    transient_or_resolved_possible: bool = False
+    fatigue_possible: bool = False
     non_neurological_expression_request: bool = False
     matched_phrases: dict[str, list[str]] = field(default_factory=dict)
 
@@ -324,6 +376,8 @@ class NormalizedSymptomSignals:
 
     @property
     def progression(self) -> Progression:
+        if self.transient_or_resolved_possible:
+            return Progression.IMPROVING
         if self.stable_possible:
             return Progression.STABLE
         if self.worsening_possible:
@@ -339,7 +393,8 @@ class NormalizedSymptomSignals:
             or self.facial_asymmetry_possible
             or self.sensory_possible
             or self.speech_language_possible
-            or self.vision_possible
+            or self.vision_change_possible
+            or self.vision_loss_possible
             or self.gait_balance_possible
         )
 
@@ -349,7 +404,7 @@ class NormalizedSymptomSignals:
             symptom_types.append("motor")
         if self.speech_language_possible:
             symptom_types.append("speech")
-        if self.sensory_possible or self.vision_possible:
+        if self.sensory_possible or self.vision_change_possible or self.vision_loss_possible:
             symptom_types.append("sensory")
         if self.gait_balance_possible:
             symptom_types.append("gait")
@@ -388,7 +443,9 @@ def normalize_symptoms(user_input: str) -> NormalizedSymptomSignals:
         "memory_cognitive": _matches(text, MEMORY_COGNITIVE_PHRASES),
         "gait_balance": _matches(text, GAIT_BALANCE_PHRASES),
         "headache": _matches(text, HEADACHE_PHRASES),
-        "vision": _matches(text, VISION_PHRASES),
+        "severe_headache": _matches(text, SEVERE_HEADACHE_PHRASES),
+        "vision_change": _matches(text, VISION_CHANGE_PHRASES),
+        "vision_loss": _matches(text, VISION_LOSS_PHRASES),
         "seizure": _matches(text, SEIZURE_PHRASES),
         "loss_of_consciousness": _matches(text, LOSS_OF_CONSCIOUSNESS_PHRASES),
         "fall": _matches(text, FALL_PHRASES),
@@ -398,6 +455,8 @@ def normalize_symptoms(user_input: str) -> NormalizedSymptomSignals:
         "stiffness": _matches(text, STIFFNESS_PHRASES),
         "hallucination": _matches(text, HALLUCINATION_PHRASES),
         "personality": _matches(text, PERSONALITY_PHRASES),
+        "transient_or_resolved": _matches(text, TRANSIENT_OR_RESOLVED_PHRASES),
+        "fatigue": _matches(text, FATIGUE_PHRASES),
     }
 
     speech_language_possible = bool(matched["speech_language"])
@@ -419,7 +478,9 @@ def normalize_symptoms(user_input: str) -> NormalizedSymptomSignals:
         memory_cognitive_possible=bool(matched["memory_cognitive"]),
         gait_balance_possible=bool(matched["gait_balance"]),
         headache_possible=bool(matched["headache"]),
-        vision_possible=bool(matched["vision"]),
+        severe_headache_possible=bool(matched["severe_headache"]),
+        vision_change_possible=bool(matched["vision_change"]) or bool(matched["vision_loss"]),
+        vision_loss_possible=bool(matched["vision_loss"]),
         seizure_episode_possible=bool(matched["seizure"]),
         loss_of_consciousness_possible=bool(matched["loss_of_consciousness"]),
         fall_head_injury_possible=fall_possible or head_injury_possible,
@@ -439,6 +500,8 @@ def normalize_symptoms(user_input: str) -> NormalizedSymptomSignals:
         chronic_possible=bool(matched["chronic"]),
         worsening_possible=_has_worsening(text),
         stable_possible=bool(matched["stable"]),
+        transient_or_resolved_possible=bool(matched["transient_or_resolved"]),
+        fatigue_possible=bool(matched["fatigue"]),
         non_neurological_expression_request=non_neuro_expression_request,
         matched_phrases={key: value for key, value in matched.items() if value},
     )

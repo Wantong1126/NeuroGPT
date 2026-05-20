@@ -109,3 +109,71 @@ def test_expression_uncertainty_is_not_neurological_speech() -> None:
     assert symptoms.red_flags.slurred_speech is False
     assert symptoms.word_finding_difficulty is False
     assert symptoms.red_flags.stroke_beFAST is False
+
+
+def test_transient_hand_numbness_is_not_emergency_now() -> None:
+    _state, output = run_text("刚才手麻了一下，现在好了")
+
+    assert output.action_level != "emergency_now"
+
+
+def test_positional_leg_numbness_relief_is_not_emergency_now() -> None:
+    _state, output = run_text("坐久了腿麻，站起来好多了")
+
+    assert output.action_level != "emergency_now"
+
+
+def test_mild_headache_is_possible_signal_not_emergency() -> None:
+    symptoms = extract_symptoms("今天有点头痛")
+    _state, output = run_text("今天有点头痛")
+
+    assert symptoms.headache_possible is True
+    assert symptoms.red_flags.severe_headache is False
+    assert output.action_level != "emergency_now"
+
+
+def test_sudden_explosive_headache_with_speech_is_emergency() -> None:
+    _state, output = run_text("突然爆炸样头痛，说话不清")
+
+    assert output.needs_follow_up_question is False
+    assert output.action_level == "emergency_now"
+
+
+def test_blurry_vision_is_not_vision_loss_emergency() -> None:
+    symptoms = extract_symptoms("看不清")
+    _state, output = run_text("看不清")
+
+    assert symptoms.vision_change_possible is True
+    assert symptoms.red_flags.vision_loss is False
+    assert output.action_level != "emergency_now"
+
+
+def test_sudden_vision_loss_is_emergency_now() -> None:
+    _state, output = run_text("突然看不见")
+
+    assert output.needs_follow_up_question is False
+    assert output.action_level == "emergency_now"
+
+
+def test_general_tiredness_is_not_one_sided_weakness() -> None:
+    symptoms = extract_symptoms("今天有点累，没什么别的症状")
+    _state, output = run_text("今天有点累，没什么别的症状")
+
+    assert symptoms.red_flags.weakness_one_side is False
+    assert output.action_level != "emergency_now"
+
+
+def test_right_hand_weakness_asks_timing_context_not_emergency() -> None:
+    _state, output = run_text("右手没力")
+
+    assert output.needs_follow_up_question is True
+    assert "什么时候" in (output.follow_up_question or "")
+    assert "持续了多久" in (output.follow_up_question or "")
+    assert output.action_level != "emergency_now"
+
+
+def test_sudden_right_hand_weakness_with_facial_droop_is_emergency() -> None:
+    _state, output = run_text("今天突然右手没力，嘴歪")
+
+    assert output.needs_follow_up_question is False
+    assert output.action_level == "emergency_now"

@@ -10,7 +10,7 @@ from core.types import CaseState, ExtractedSymptoms, Onset, Progression
 
 
 SPEECH_ONSET_QUESTION = "这个说话/表达困难是突然出现的吗？大概从什么时候开始？"
-FOCAL_ONSET_QUESTION = "这个症状是突然出现的吗？大概从什么时候开始？是一侧还是两侧？"
+FOCAL_ONSET_QUESTION = "这个症状是突然出现的吗？大概从什么时候开始？持续了多久？是一侧还是两侧？"
 CONFUSION_ONSET_QUESTION = "这种糊涂/意识变化是突然出现的吗？最近有没有加重？"
 GENERAL_ONSET_QUESTION = "这个症状是从什么时候开始的？是突然发生的，还是慢慢出现的？"
 PROGRESSION_QUESTION = "最近这个症状有没有加重？比如更频繁，或者更严重？"
@@ -52,6 +52,23 @@ def _has_focal_or_stroke_family_symptom(symptoms: ExtractedSymptoms) -> bool:
     )
 
 
+def _has_strong_emergency_cluster(symptoms: ExtractedSymptoms) -> bool:
+    rf = symptoms.red_flags
+    has_speech_language_symptom = _has_speech_language_symptom(symptoms)
+    focal_partner = any([rf.weakness_one_side, rf.facial_droop, rf.focal_numbness])
+    return any(
+        [
+            rf.seizure,
+            rf.loss_of_consciousness,
+            symptoms.onset == Onset.SUDDEN and rf.vision_loss,
+            symptoms.onset == Onset.SUDDEN and rf.severe_headache,
+            has_speech_language_symptom and focal_partner,
+            rf.facial_droop and rf.weakness_one_side,
+            rf.head_injury and any([rf.acute_confusion, rf.seizure, rf.loss_of_consciousness]),
+        ]
+    )
+
+
 def _has_confusion_or_awareness_symptom(symptoms: ExtractedSymptoms) -> bool:
     rf = symptoms.red_flags
     return (
@@ -65,6 +82,8 @@ def _has_confusion_or_awareness_symptom(symptoms: ExtractedSymptoms) -> bool:
 def _has_immediate_emergency_without_followup(symptoms: ExtractedSymptoms) -> bool:
     rf = symptoms.red_flags
     has_speech_language_symptom = _has_speech_language_symptom(symptoms)
+    if symptoms.transient_or_resolved and not _has_strong_emergency_cluster(symptoms):
+        return False
     return any(
         [
             rf.seizure,

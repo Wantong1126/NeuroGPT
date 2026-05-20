@@ -41,7 +41,9 @@ class RiskStratifier:
         recommended action, and human-readable explanation.
         """
         # 鈹€鈹€ Check HIGH rules first 鈹€鈹€
-        high_match = self._check_section(symptoms, self.rules.get("high_risk", []))
+        high_match = None
+        if not (symptoms.transient_or_resolved and not self._has_strong_emergency_cluster(symptoms)):
+            high_match = self._check_section(symptoms, self.rules.get("high_risk", []))
         if high_match:
             return self._build_assessment(
                 RiskLevel.HIGH,
@@ -81,6 +83,26 @@ class RiskStratifier:
             return ActionLevel(action)
         except ValueError:
             return default
+
+    def _has_strong_emergency_cluster(self, symptoms: ExtractedSymptoms) -> bool:
+        rf = symptoms.red_flags
+        speech_language = (
+            rf.slurred_speech
+            or symptoms.word_finding_difficulty
+            or "speech" in symptoms.symptom_type
+        )
+        focal_partner = any([rf.weakness_one_side, rf.facial_droop, rf.focal_numbness])
+        return any(
+            [
+                rf.seizure,
+                rf.loss_of_consciousness,
+                symptoms.onset.value == "sudden" and rf.vision_loss,
+                symptoms.onset.value == "sudden" and rf.severe_headache,
+                speech_language and focal_partner,
+                rf.facial_droop and rf.weakness_one_side,
+                rf.head_injury and any([rf.acute_confusion, rf.seizure, rf.loss_of_consciousness]),
+            ]
+        )
 
     # 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
     # Section checker
@@ -168,6 +190,14 @@ class RiskStratifier:
             "new_falls": rf.new_falls,
             "head_injury": rf.head_injury,
             "incontinence": rf.incontinence,
+            "weakness_possible": symptoms.weakness_possible,
+            "sensory_possible": symptoms.sensory_possible,
+            "headache_possible": symptoms.headache_possible,
+            "vision_change_possible": symptoms.vision_change_possible,
+            "transient_or_resolved": symptoms.transient_or_resolved,
+            "vision_changes": symptoms.vision_change_possible or rf.vision_loss,
+            "weakness": symptoms.weakness_possible or rf.weakness_one_side,
+            "numbness": symptoms.sensory_possible or rf.focal_numbness,
             # Extended model fields
             "word_finding_difficulty": symptoms.word_finding_difficulty,
             "disorientation": symptoms.disorientation,

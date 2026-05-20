@@ -27,6 +27,11 @@ def _m(dest, src):
     if srf.new_falls: rf.new_falls=True
     if srf.head_injury: rf.head_injury=True
     if srf.incontinence: rf.incontinence=True
+    if src.weakness_possible: dest.weakness_possible=True
+    if src.sensory_possible: dest.sensory_possible=True
+    if src.headache_possible: dest.headache_possible=True
+    if src.vision_change_possible: dest.vision_change_possible=True
+    if src.transient_or_resolved: dest.transient_or_resolved=True
     if dest.onset==Onset.UNKNOWN and src.onset!=Onset.UNKNOWN: dest.onset=src.onset
     if dest.laterality==Laterality.UNKNOWN and src.laterality!=Laterality.UNKNOWN: dest.laterality=src.laterality
     if dest.progression==Progression.UNKNOWN and src.progression!=Progression.UNKNOWN: dest.progression=src.progression

@@ -110,6 +110,11 @@ class ExtractedSymptoms(BaseModel):
     progression: Progression = Progression.UNKNOWN
     frequency_text: str = ""
     red_flags: RedFlags = Field(default_factory=RedFlags)
+    weakness_possible: bool = False
+    sensory_possible: bool = False
+    headache_possible: bool = False
+    vision_change_possible: bool = False
+    transient_or_resolved: bool = False
     memory_concern: bool = False
     word_finding_difficulty: bool = False
     disorientation: bool = False
