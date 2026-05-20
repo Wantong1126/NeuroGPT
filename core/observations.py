@@ -6,8 +6,6 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
-from core.types import Laterality, Onset, Progression
-
 
 SymptomFamily = Literal[
     "weakness",
@@ -27,6 +25,16 @@ SymptomFamily = Literal[
 ]
 
 SignalStrength = Literal["possible", "red_flag_candidate", "true_red_flag"]
+ObservationOnset = Literal["sudden", "gradual", "chronic", "unknown"]
+ObservationLaterality = Literal["one_side", "both_sides", "central", "unknown"]
+ObservationProgression = Literal[
+    "first_time",
+    "worsening",
+    "stable",
+    "improving",
+    "recurring",
+    "unknown",
+]
 DurationCategory = Literal[
     "transient_resolved",
     "minutes_hours",
@@ -45,11 +53,11 @@ class NormalizedObservation(BaseModel):
     raw_text: str = ""
     symptom_family: SymptomFamily = "other"
     signal_strength: SignalStrength = "possible"
-    onset: Onset = Onset.UNKNOWN
+    onset: ObservationOnset = "unknown"
     duration_text: str = ""
     duration_category: DurationCategory = "unknown"
-    laterality: Laterality = Laterality.UNKNOWN
-    progression: Progression = Progression.UNKNOWN
+    laterality: ObservationLaterality = "unknown"
+    progression: ObservationProgression = "unknown"
     severity_qualifier: SeverityQualifier = "unknown"
     transient_or_resolved: bool = False
     associated_red_flags: list[str] = Field(default_factory=list)

@@ -468,6 +468,16 @@ def _segment_for_evidence(text: str, evidence_phrases: list[str]) -> str:
         after = text.find(separator, position)
         if after >= 0:
             end = min(end, after)
+    if end < len(text):
+        tail = text[end:]
+        next_piece_end = len(tail)
+        for separator in separators:
+            separator_pos = tail.find(separator, 1)
+            if separator_pos >= 0:
+                next_piece_end = min(next_piece_end, separator_pos)
+        next_piece = tail[:next_piece_end]
+        if _has_any(next_piece, TRANSIENT_OR_RESOLVED_PHRASES):
+            end += next_piece_end
     return text[start:end].strip() or text
 
 
@@ -528,10 +538,10 @@ def _base_observation(
         raw_text=signals.raw_text,
         symptom_family=family,
         signal_strength=strength,
-        onset=context.onset,
+        onset=context.onset.value,
         duration_category=_duration_category(context),
-        laterality=context.laterality,
-        progression=_observation_progression(signals, context),
+        laterality=context.laterality.value,
+        progression=_observation_progression(signals, context).value,
         severity_qualifier=severity or _severity(signals, family),
         transient_or_resolved=context.transient_or_resolved_possible,
         associated_red_flags=associated_red_flags

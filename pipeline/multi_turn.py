@@ -12,6 +12,9 @@ def _m(dest, src):
     for symptom_type in src.symptom_type:
         if symptom_type not in dest.symptom_type:
             dest.symptom_type.append(symptom_type)
+    for observation in src.observations:
+        if observation not in dest.observations:
+            dest.observations.append(observation)
     if srf.weakness_one_side: rf.weakness_one_side=True
     if srf.facial_droop: rf.facial_droop=True
     if srf.slurred_speech: rf.slurred_speech=True

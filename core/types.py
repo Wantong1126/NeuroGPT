@@ -75,6 +75,9 @@ class Progression(str, Enum):
     UNKNOWN = "unknown"
 
 
+from core.observations import NormalizedObservation
+
+
 # ─────────────────────────────────────────────
 # Symptom Extraction
 # ─────────────────────────────────────────────
@@ -110,6 +113,7 @@ class ExtractedSymptoms(BaseModel):
     progression: Progression = Progression.UNKNOWN
     frequency_text: str = ""
     red_flags: RedFlags = Field(default_factory=RedFlags)
+    observations: list[NormalizedObservation] = Field(default_factory=list)
     weakness_possible: bool = False
     sensory_possible: bool = False
     headache_possible: bool = False

@@ -15,64 +15,197 @@ from core.provider_settings import get_provider
 from modules.symptom_normalizer import normalize_observations
 
 SYSTEM_PROMPT = (
-    "You are a clinical symptom-extraction assistant for a medical education tool "
-    "targeting older adults and their caregivers. Your task is to parse free-form "
-    "symptom descriptions into a structured clinical profile. "
-    "Be conservative: when uncertain, mark fields as unknown rather than guessing."
+    "You extract normalized symptom observations for a medical education tool. "
+    "Your job is language understanding only. Do not decide urgency, concern level, "
+    "action level, diagnosis, or care setting. When uncertain, use unknown/possible."
 )
 
-SCHEMA = """
+OBSERVATION_SCHEMA = """
 {
-  "symptom_type": ["motor", "cognitive", "speech", "behavioral", "sensory", "gait", "other"],
-  "primary_symptom": "main complaint in the user's own words",
-  "onset": "sudden | gradual | chronic | unknown",
-  "laterality": "one_side | both_sides | central | unknown",
-  "duration_text": "how long symptoms have been present",
-  "progression": "first_time | worsening | stable | improving | recurring | unknown",
-  "frequency_text": "intermittent / constant / single episode",
-  "red_flags": {
-    "weakness_one_side": true,
-    "facial_droop": false,
-    "slurred_speech": false,
-    "sudden_onset": true,
-    "acute_confusion": false,
-    "seizure": false,
-    "loss_of_consciousness": false,
-    "severe_headache": false,
-    "vision_loss": false,
-    "gait_imbalance": false,
-    "focal_numbness": false,
-    "new_falls": false,
-    "head_injury": false,
-    "incontinence": false,
-    "stroke_beFAST": false
-  }
+  "observations": [
+    {
+      "raw_text": "original full user text",
+      "symptom_family": "weakness | facial_asymmetry | sensory | speech_language | confusion_awareness | memory_cognitive | gait_balance | headache | vision | seizure_episode | loss_of_consciousness | fall_head_injury | fatigue | other",
+      "signal_strength": "possible | red_flag_candidate | true_red_flag",
+      "onset": "sudden | gradual | chronic | unknown",
+      "duration_text": "short phrase describing duration if stated",
+      "duration_category": "transient_resolved | minutes_hours | days | weeks_months | years_chronic | unknown",
+      "laterality": "one_side | both_sides | central | unknown",
+      "progression": "first_time | worsening | stable | improving | recurring | unknown",
+      "severity_qualifier": "mild | moderate | severe | unknown",
+      "transient_or_resolved": false,
+      "associated_red_flags": ["slurred_speech"],
+      "evidence_text": "exact user wording supporting this observation",
+      "confidence": 0.0
+    }
+  ]
 }
 """
 
 
 def extract_symptoms(user_input: str) -> ExtractedSymptoms:
     """Main entry point."""
+    deterministic_observations = normalize_observations(user_input)
     provider = get_provider("symptom_extractor")
     if provider != "openai_compatible":
-        observations = normalize_observations(user_input)
-        return _from_observations(user_input, observations)
+        return _from_observations(user_input, deterministic_observations)
 
-    observations = normalize_observations(user_input)
-
-    template = load_prompt_template("symptom_extractor") or "Extract clinical features from: {user_input}"
-    user_prompt = template.format(user_input=user_input)
-
-    try:
-        raw = call_structured(user_prompt, SYSTEM_PROMPT, SCHEMA)
-    except Exception:
-        return _from_observations(user_input, observations)
-
-    return _parse_extracted(raw, user_input, observations)
+    llm_raw, llm_observations = _extract_llm_observations(user_input)
+    merged_observations = merge_observations(deterministic_observations, llm_observations)
+    return _from_observations(user_input, merged_observations, llm_raw)
 
 
 def _bool(value) -> bool:
     return bool(value) if value is not None else False
+
+
+def _extract_llm_observations(user_input: str) -> tuple[dict, list[NormalizedObservation]]:
+    template = load_prompt_template("symptom_observation_extractor") or (
+        "Extract normalized symptom observations from this user text. "
+        "Return observations only. Do not include action_level, concern_level, diagnosis, "
+        "triage advice, or care recommendations.\n\nUser text: {user_input}"
+    )
+    user_prompt = template.format(user_input=user_input)
+
+    try:
+        raw = call_structured(user_prompt, SYSTEM_PROMPT, OBSERVATION_SCHEMA)
+    except Exception:
+        return {}, []
+
+    return raw, _parse_llm_observations(raw, user_input)
+
+
+def _parse_llm_observations(raw: object, user_input: str) -> list[NormalizedObservation]:
+    if isinstance(raw, dict):
+        raw_items = raw.get("observations", [])
+    elif isinstance(raw, list):
+        raw_items = raw
+    else:
+        return []
+
+    if not isinstance(raw_items, list):
+        return []
+
+    parsed: list[NormalizedObservation] = []
+    for item in raw_items:
+        if not isinstance(item, dict):
+            continue
+        data = dict(item)
+        data["raw_text"] = data.get("raw_text") or user_input
+        data["source"] = "llm"
+        try:
+            observation = NormalizedObservation(**data)
+        except Exception:
+            continue
+        if _valid_llm_observation(observation):
+            parsed.append(observation)
+    return parsed
+
+
+def _valid_llm_observation(observation: NormalizedObservation) -> bool:
+    if observation.confidence < 0.5:
+        return False
+    if not observation.evidence_text.strip():
+        return False
+    return observation.evidence_text.strip().lower() in observation.raw_text.lower()
+
+
+def _strength_rank(strength: str) -> int:
+    return {
+        "possible": 0,
+        "red_flag_candidate": 1,
+        "true_red_flag": 2,
+    }.get(strength, 0)
+
+
+def _merge_observation_pair(
+    deterministic: NormalizedObservation,
+    llm_observation: NormalizedObservation,
+) -> NormalizedObservation:
+    keep_deterministic_true = deterministic.signal_strength == "true_red_flag"
+    signal_strength = deterministic.signal_strength
+    if not keep_deterministic_true and _strength_rank(llm_observation.signal_strength) > _strength_rank(signal_strength):
+        signal_strength = llm_observation.signal_strength
+
+    onset = deterministic.onset
+    if onset == "unknown" and llm_observation.onset != "unknown":
+        onset = llm_observation.onset
+
+    laterality = deterministic.laterality
+    if laterality == "unknown" and llm_observation.laterality != "unknown":
+        laterality = llm_observation.laterality
+
+    progression = deterministic.progression
+    if progression == "unknown" and llm_observation.progression != "unknown":
+        progression = llm_observation.progression
+
+    duration_category = deterministic.duration_category
+    if duration_category == "unknown" and llm_observation.duration_category != "unknown":
+        duration_category = llm_observation.duration_category
+
+    duration_text = deterministic.duration_text or llm_observation.duration_text
+    severity = deterministic.severity_qualifier
+    if severity == "unknown" and llm_observation.severity_qualifier != "unknown":
+        severity = llm_observation.severity_qualifier
+
+    associated = list(dict.fromkeys([
+        *deterministic.associated_red_flags,
+        *llm_observation.associated_red_flags,
+    ]))
+    evidence = "；".join(
+        dict.fromkeys(
+            item for item in [deterministic.evidence_text, llm_observation.evidence_text] if item
+        )
+    )
+
+    return deterministic.model_copy(
+        update={
+            "signal_strength": signal_strength,
+            "onset": onset,
+            "duration_text": duration_text,
+            "duration_category": duration_category,
+            "laterality": laterality,
+            "progression": progression,
+            "severity_qualifier": severity,
+            "transient_or_resolved": deterministic.transient_or_resolved
+            or llm_observation.transient_or_resolved,
+            "associated_red_flags": associated,
+            "evidence_text": evidence,
+            "source": "merged",
+            "confidence": max(deterministic.confidence, llm_observation.confidence),
+        }
+    )
+
+
+def merge_observations(
+    deterministic_observations: list[NormalizedObservation],
+    llm_observations: list[NormalizedObservation],
+) -> list[NormalizedObservation]:
+    """Merge LLM language observations into deterministic observations conservatively."""
+    merged = list(deterministic_observations)
+
+    for llm_observation in llm_observations:
+        if not _valid_llm_observation(llm_observation):
+            continue
+
+        match_index = next(
+            (
+                index
+                for index, observation in enumerate(merged)
+                if observation.symptom_family == llm_observation.symptom_family
+            ),
+            None,
+        )
+        if match_index is None:
+            merged.append(llm_observation)
+            continue
+
+        merged[match_index] = _merge_observation_pair(merged[match_index], llm_observation)
+
+    if any(observation.symptom_family != "other" for observation in merged):
+        merged = [observation for observation in merged if observation.symptom_family != "other"]
+
+    return merged
 
 
 def _raw_flag_unless_possible_only(raw_value, possible_signal: bool, true_red_flag: bool) -> bool:
@@ -125,8 +258,11 @@ def _aggregate_enum(observations: list[NormalizedObservation], attr: str, unknow
     for preferred in preferred_values:
         for obs in observations:
             value = getattr(obs, attr)
-            if getattr(value, "value", None) == preferred:
-                return value
+            if getattr(value, "value", value) == preferred:
+                try:
+                    return type(unknown)(preferred)
+                except ValueError:
+                    continue
     return unknown
 
 
@@ -304,6 +440,7 @@ def _parse_extracted(
         progression=progression,
         frequency_text=raw.get("frequency_text", ""),
         red_flags=red_flags,
+        observations=observations,
         weakness_possible=_has_family(observations, "weakness"),
         sensory_possible=_has_family(observations, "sensory"),
         headache_possible=_has_family(observations, "headache"),
@@ -332,6 +469,7 @@ def _parse_extracted(
 def _from_observations(
     user_input: str,
     observations: list[NormalizedObservation],
+    raw_debug: dict | None = None,
 ) -> ExtractedSymptoms:
     """Build deterministic extraction output from structured observations."""
     onset = _aggregate_enum(observations, "onset", Onset.UNKNOWN)
@@ -348,6 +486,7 @@ def _from_observations(
         duration_text=_observation_evidence_text(observations),
         progression=progression,
         red_flags=red_flags,
+        observations=observations,
         weakness_possible=_has_family(observations, "weakness"),
         sensory_possible=_has_family(observations, "sensory"),
         headache_possible=_has_family(observations, "headache"),
@@ -358,5 +497,5 @@ def _from_observations(
         disorientation=_has_family(observations, "confusion_awareness"),
         falls_present=_associated(observations, "fall"),
         gait_difficulty=_has_family(observations, "gait_balance"),
-        llm_raw_json=_observation_audit({}, observations),
+        llm_raw_json=_observation_audit(raw_debug or {}, observations),
     )

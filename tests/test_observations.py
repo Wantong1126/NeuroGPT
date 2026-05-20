@@ -67,8 +67,8 @@ def test_sudden_one_sided_numbness_with_speech_observations_are_emergency() -> N
     speech = _observation("突然半边身子麻，说话不清", "speech_language")
     _state, output = _run_text("突然半边身子麻，说话不清")
 
-    assert sensory.onset.value == "sudden"
-    assert sensory.laterality.value == "one_side"
+    assert sensory.onset == "sudden"
+    assert sensory.laterality == "one_side"
     assert sensory.signal_strength == "true_red_flag"
     assert speech.signal_strength == "red_flag_candidate"
     assert output.action_level == "emergency_now"
@@ -113,4 +113,131 @@ def test_mixed_transient_sensory_and_gait_observations_stay_separate() -> None:
     assert gait.duration_category != "transient_resolved"
     assert symptoms.sensory_possible is True
     assert symptoms.gait_difficulty is True
+    assert output.action_level != "emergency_now"
+
+
+def test_deterministic_observations_are_first_class_on_extracted_symptoms() -> None:
+    symptoms = extract_symptoms("右手没力")
+    _state, output = _run_text("右手没力")
+
+    assert symptoms.observations
+    assert any(obs.symptom_family == "weakness" for obs in symptoms.observations)
+    assert output.action_level != "emergency_now"
+
+
+def test_mocked_llm_observation_extracts_uncovered_wording(monkeypatch) -> None:
+    monkeypatch.setattr(symptom_extractor, "get_provider", lambda _module: "openai_compatible")
+    monkeypatch.setattr(
+        symptom_extractor,
+        "call_structured",
+        lambda *_args, **_kwargs: {
+            "observations": [
+                {
+                    "raw_text": "右手像被棉花包住一样，不太听使唤",
+                    "symptom_family": "sensory",
+                    "signal_strength": "red_flag_candidate",
+                    "onset": "unknown",
+                    "duration_text": "",
+                    "duration_category": "unknown",
+                    "laterality": "one_side",
+                    "progression": "unknown",
+                    "severity_qualifier": "unknown",
+                    "transient_or_resolved": False,
+                    "associated_red_flags": [],
+                    "evidence_text": "右手像被棉花包住一样",
+                    "confidence": 0.9,
+                }
+            ]
+        },
+    )
+
+    text = "右手像被棉花包住一样，不太听使唤"
+    symptoms = extract_symptoms(text)
+    _state, output = _run_text(text)
+
+    assert any(obs.symptom_family == "sensory" and obs.source == "llm" for obs in symptoms.observations)
+    assert symptoms.sensory_possible is True
+    assert "右手像被棉花包住一样" in symptoms.duration_text
+    assert output.needs_follow_up_question is True
+    assert output.action_level != "emergency_now"
+
+
+def test_llm_action_and_concern_fields_are_ignored(monkeypatch) -> None:
+    monkeypatch.setattr(symptom_extractor, "get_provider", lambda _module: "openai_compatible")
+    monkeypatch.setattr(
+        symptom_extractor,
+        "call_structured",
+        lambda *_args, **_kwargs: {
+            "action_level": "emergency_now",
+            "concern_level": "high",
+            "observations": [
+                {
+                    "raw_text": "只是有点累",
+                    "symptom_family": "fatigue",
+                    "signal_strength": "possible",
+                    "onset": "unknown",
+                    "duration_text": "",
+                    "duration_category": "unknown",
+                    "laterality": "unknown",
+                    "progression": "unknown",
+                    "severity_qualifier": "mild",
+                    "transient_or_resolved": False,
+                    "associated_red_flags": [],
+                    "evidence_text": "有点累",
+                    "confidence": 0.9,
+                }
+            ],
+        },
+    )
+
+    symptoms = extract_symptoms("只是有点累")
+    _state, output = _run_text("只是有点累")
+
+    assert not hasattr(symptoms, "action_level")
+    assert not hasattr(symptoms, "concern_level")
+    assert output.action_level != "emergency_now"
+
+
+def test_deterministic_safety_override_survives_ambiguous_llm(monkeypatch) -> None:
+    monkeypatch.setattr(symptom_extractor, "get_provider", lambda _module: "openai_compatible")
+    monkeypatch.setattr(
+        symptom_extractor,
+        "call_structured",
+        lambda *_args, **_kwargs: {
+            "observations": [
+                {
+                    "raw_text": "突然半边身子麻，说话不清",
+                    "symptom_family": "sensory",
+                    "signal_strength": "possible",
+                    "onset": "unknown",
+                    "duration_text": "",
+                    "duration_category": "unknown",
+                    "laterality": "unknown",
+                    "progression": "unknown",
+                    "severity_qualifier": "unknown",
+                    "transient_or_resolved": False,
+                    "associated_red_flags": [],
+                    "evidence_text": "半边身子麻",
+                    "confidence": 0.9,
+                }
+            ]
+        },
+    )
+
+    symptoms = extract_symptoms("突然半边身子麻，说话不清")
+    _state, output = _run_text("突然半边身子麻，说话不清")
+
+    assert any(obs.symptom_family == "sensory" for obs in symptoms.observations)
+    assert symptoms.red_flags.focal_numbness is True
+    assert output.action_level == "emergency_now"
+
+
+def test_transient_low_risk_observation_is_preserved() -> None:
+    symptoms = extract_symptoms("坐久了腿麻，站起来好多了")
+    _state, output = _run_text("坐久了腿麻，站起来好多了")
+
+    assert any(
+        obs.symptom_family == "sensory" and obs.transient_or_resolved
+        for obs in symptoms.observations
+    )
     assert output.action_level != "emergency_now"
