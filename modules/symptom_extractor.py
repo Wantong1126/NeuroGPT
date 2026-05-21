@@ -36,6 +36,9 @@ OBSERVATION_SCHEMA = """
       "transient_or_resolved": false,
       "associated_red_flags": ["slurred_speech"],
       "evidence_text": "exact user wording supporting this observation",
+      "clarification_needed": false,
+      "clarification_reason": "short reason when wording is ambiguous",
+      "possible_families": ["sensory", "weakness"],
       "confidence": 0.0
     }
   ]
@@ -152,6 +155,10 @@ def _merge_observation_pair(
         *deterministic.associated_red_flags,
         *llm_observation.associated_red_flags,
     ]))
+    possible_families = list(dict.fromkeys([
+        *deterministic.possible_families,
+        *llm_observation.possible_families,
+    ]))
     evidence = "；".join(
         dict.fromkeys(
             item for item in [deterministic.evidence_text, llm_observation.evidence_text] if item
@@ -171,6 +178,11 @@ def _merge_observation_pair(
             or llm_observation.transient_or_resolved,
             "associated_red_flags": associated,
             "evidence_text": evidence,
+            "clarification_needed": deterministic.clarification_needed
+            or llm_observation.clarification_needed,
+            "clarification_reason": deterministic.clarification_reason
+            or llm_observation.clarification_reason,
+            "possible_families": possible_families,
             "source": "merged",
             "confidence": max(deterministic.confidence, llm_observation.confidence),
         }

@@ -62,5 +62,8 @@ class NormalizedObservation(BaseModel):
     transient_or_resolved: bool = False
     associated_red_flags: list[str] = Field(default_factory=list)
     evidence_text: str = ""
+    clarification_needed: bool = False
+    clarification_reason: str = ""
+    possible_families: list[SymptomFamily] = Field(default_factory=list)
     source: ObservationSource = "deterministic"
     confidence: float = Field(default=0.8, ge=0.0, le=1.0)

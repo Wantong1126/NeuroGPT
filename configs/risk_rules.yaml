@@ -87,7 +87,7 @@ high_risk:
       requires_all: true
       checks:
         - head_injury: true
-        - OR: [confusion, loss_of_consciousness, weakness, vision_loss, seizure, severe_headache]
+        - OR: [acute_confusion, loss_of_consciousness, weakness, vision_loss, seizure, severe_headache]
 
   - id: "SUDDEN_VISION_LOSS"
     name: "Sudden monocular or binocular vision loss"

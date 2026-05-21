@@ -14,6 +14,7 @@ FOCAL_ONSET_QUESTION = "这个症状是突然出现的吗？大概从什么时�
 CONFUSION_ONSET_QUESTION = "这种糊涂/意识变化是突然出现的吗？最近有没有加重？"
 GENERAL_ONSET_QUESTION = "这个症状是从什么时候开始的？是突然发生的，还是慢慢出现的？"
 PROGRESSION_QUESTION = "最近这个症状有没有加重？比如更频繁，或者更严重？"
+AMBIGUOUS_OBSERVATION_QUESTION = "您说的这种感觉更像是麻木、没力、动作不灵活，还是感觉变迟钝？大概什么时候开始的？"
 
 
 def _has_speech_language_symptom(symptoms: ExtractedSymptoms) -> bool:
@@ -98,6 +99,10 @@ def _has_immediate_emergency_without_followup(symptoms: ExtractedSymptoms) -> bo
     )
 
 
+def _has_ambiguous_observation(symptoms: ExtractedSymptoms) -> bool:
+    return any(observation.clarification_needed for observation in symptoms.observations)
+
+
 def _should_skip_laterality_question(symptoms: ExtractedSymptoms) -> bool:
     if symptoms.onset == Onset.CHRONIC and symptoms.progression == Progression.STABLE:
         return True
@@ -115,6 +120,9 @@ def decide_question(state: CaseState) -> str | None:
     # Do not block source-backed obvious emergencies behind more questions.
     if _has_immediate_emergency_without_followup(symptoms):
         return None
+
+    if _has_ambiguous_observation(symptoms):
+        return AMBIGUOUS_OBSERVATION_QUESTION
 
     if _has_speech_language_symptom(symptoms) and symptoms.onset == Onset.UNKNOWN:
         return SPEECH_ONSET_QUESTION

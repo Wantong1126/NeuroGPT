@@ -673,7 +673,15 @@ def observations_from_signals(signals: NormalizedSymptomSignals) -> list[Normali
         observations.append(_base_observation(signals, "fatigue", "possible", ["fatigue"]))
 
     if not observations:
-        observations.append(_base_observation(signals, "other", "possible", []))
+        observation = _base_observation(signals, "other", "possible", [])
+        observations.append(
+            observation.model_copy(
+                update={
+                    "clarification_needed": True,
+                    "clarification_reason": "unrecognized_lay_description",
+                }
+            )
+        )
 
     return observations
 
