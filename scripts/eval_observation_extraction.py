@@ -350,8 +350,9 @@ def run_evaluation(cases_path: Path = DEFAULT_CASES_PATH, report_path: Path = DE
 
     fixtures = _mock_raw_cases(cases)
     if fixtures:
-        sections["mocked_llm"] = _evaluate_path(cases, lambda case: _llm_case(case, fixtures.get(case["id"], {})))
-        sections["mocked_merged"] = _evaluate_path(cases, lambda case: _merged_case(case, fixtures.get(case["id"], {})))
+        mocked_cases = [case for case in cases if case["id"] in fixtures]
+        sections["mocked_llm"] = _evaluate_path(mocked_cases, lambda case: _llm_case(case, fixtures[case["id"]]))
+        sections["mocked_merged"] = _evaluate_path(mocked_cases, lambda case: _merged_case(case, fixtures[case["id"]]))
     else:
         sections["mocked_llm"] = {"skipped": "No mock_llm_raw fixtures are present in the JSONL cases."}
         sections["mocked_merged"] = {"skipped": "No mock_llm_raw fixtures are present in the JSONL cases."}

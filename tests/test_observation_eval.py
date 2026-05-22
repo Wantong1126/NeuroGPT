@@ -33,9 +33,13 @@ def test_report_generation_works_without_api_key(tmp_path, monkeypatch) -> None:
     assert report.exists()
     text = report.read_text(encoding="utf-8")
     assert "## deterministic" in text
+    assert "## mocked_llm" in text
+    assert "## mocked_merged" in text
     assert "## live_llm" in text
-    assert "Skipped:" in text
+    assert "No mock_llm_raw fixtures" not in text
     assert sections["deterministic"]["total_cases"] >= 25
+    assert "skipped" not in sections["mocked_llm"]
+    assert "skipped" not in sections["mocked_merged"]
 
 
 def test_ambiguous_cases_can_expect_clarification_needed() -> None:
@@ -84,6 +88,42 @@ def test_mocked_llm_action_and_concern_output_is_ignored() -> None:
 
     assert metrics["unsafe_action_override_count"] == 1
     assert result["pipeline"]["action_level"] != "emergency_now"
+
+
+def test_jsonl_mocked_llm_sections_are_not_skipped() -> None:
+    sections = obs_eval.run_evaluation()
+
+    assert "skipped" not in sections["mocked_llm"]
+    assert "skipped" not in sections["mocked_merged"]
+    assert sections["mocked_llm"]["total_cases"] > 0
+    assert sections["mocked_merged"]["total_cases"] == sections["mocked_llm"]["total_cases"]
+
+
+def test_mocked_merged_improves_fixture_subset_family_matching() -> None:
+    cases = obs_eval.load_cases()
+    fixtures = obs_eval._mock_raw_cases(cases)
+    mocked_cases = [case for case in cases if case["id"] in fixtures]
+    deterministic = obs_eval._evaluate_path(mocked_cases, obs_eval._deterministic_case)
+    mocked_merged = obs_eval._evaluate_path(
+        mocked_cases,
+        lambda case: obs_eval._merged_case(case, fixtures[case["id"]]),
+    )
+
+    assert mocked_merged["acceptable_family_match_rate"] > deterministic["acceptable_family_match_rate"]
+    assert mocked_merged["expected_family_match_rate"] >= deterministic["expected_family_match_rate"]
+
+
+def test_jsonl_mock_safety_metrics_remain_intact() -> None:
+    sections = obs_eval.run_evaluation()
+
+    for section_name in ("mocked_llm", "mocked_merged"):
+        metrics = sections[section_name]
+        assert metrics["unsafe_action_override_count"] == 1
+        assert metrics["emergency_preservation_rate"] == 1.0
+        assert metrics["overmedicalization_failure_count"] == 0
+        assert metrics["ambiguous_case_overconfidence_count"] == 0
+        assert metrics["not_action_level_violation_count"] == 0
+        assert metrics["evidence_grounded_rate"] == 1.0
 
 
 def test_evidence_text_must_be_grounded_in_input() -> None:
