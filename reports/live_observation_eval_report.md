@@ -163,20 +163,20 @@ Safety verdict: FAIL
 
 ## live_llm
 
-- provider: heuristic
-- model: n/a
-- live_requested: False
-- live_cases: 32
+- provider: openai_compatible
+- model: candidate-model
+- live_requested: True
+- live_cases: 1
 - safety_verdict: SKIPPED
 
-Skipped: Live eval not requested. Re-run with --live to evaluate a configured LLM provider.
+Skipped: NEUROGPT_LLM_API_KEY is not set. Configure a key before running live eval.
 
 ## live_merged
 
-- provider: heuristic
-- model: n/a
-- live_requested: False
-- live_cases: 32
+- provider: openai_compatible
+- model: candidate-model
+- live_requested: True
+- live_cases: 1
 - safety_verdict: SKIPPED
 
-Skipped: Live eval not requested. Re-run with --live to evaluate a configured LLM provider.
+Skipped: NEUROGPT_LLM_API_KEY is not set. Configure a key before running live eval.

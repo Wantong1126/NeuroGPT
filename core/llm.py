@@ -79,6 +79,7 @@ def call_structured(
     user_message: str,
     system_prompt: str,
     schema: str,
+    model: Optional[str] = None,
 ) -> dict:
     """Call LLM and parse JSON response matching the provided schema description."""
     full_system = (
@@ -86,7 +87,7 @@ def call_structured(
         + f"\n\nIMPORTANT: Your response MUST be valid JSON conforming to this schema:\n{schema}"
         + "\nReturn ONLY the JSON object, no additional text."
     )
-    raw = call(user_message, system_prompt=full_system, json_mode=True)
+    raw = call(user_message, system_prompt=full_system, model=model, json_mode=True)
     # Strip markdown code fences if present
     raw = raw.strip()
     if raw.startswith("```"):
