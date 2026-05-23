@@ -164,8 +164,8 @@ Safety verdict: FAIL
 ## live_llm
 
 - provider: openai_compatible
-- model: smoke-model
-- timestamp: 2026-05-23T10:25:11Z
+- model: smoke-a
+- timestamp: 2026-05-23T10:25:28Z
 - live_requested: True
 - live_ran: False
 - live_cases: 1
@@ -177,8 +177,8 @@ Skipped: NEUROGPT_LLM_API_KEY is not set. Configure a key before running live ev
 ## live_merged
 
 - provider: openai_compatible
-- model: smoke-model
-- timestamp: 2026-05-23T10:25:11Z
+- model: smoke-a
+- timestamp: 2026-05-23T10:25:28Z
 - live_requested: True
 - live_ran: False
 - live_cases: 1

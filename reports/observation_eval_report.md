@@ -165,8 +165,11 @@ Safety verdict: FAIL
 
 - provider: heuristic
 - model: n/a
+- timestamp: 2026-05-23T10:25:13Z
 - live_requested: False
+- live_ran: False
 - live_cases: 32
+- skipped_reason: Live eval not requested. Re-run with --live to evaluate a configured LLM provider.
 - safety_verdict: SKIPPED
 
 Skipped: Live eval not requested. Re-run with --live to evaluate a configured LLM provider.
@@ -175,8 +178,11 @@ Skipped: Live eval not requested. Re-run with --live to evaluate a configured LL
 
 - provider: heuristic
 - model: n/a
+- timestamp: 2026-05-23T10:25:13Z
 - live_requested: False
+- live_ran: False
 - live_cases: 32
+- skipped_reason: Live eval not requested. Re-run with --live to evaluate a configured LLM provider.
 - safety_verdict: SKIPPED
 
 Skipped: Live eval not requested. Re-run with --live to evaluate a configured LLM provider.

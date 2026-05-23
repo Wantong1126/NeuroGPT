@@ -62,6 +62,9 @@ def test_live_mode_skips_gracefully_without_api_key(tmp_path, monkeypatch) -> No
     text = report.read_text(encoding="utf-8")
     assert "provider: openai_compatible" in text
     assert "model: candidate-model" in text
+    assert "timestamp:" in text
+    assert "live_ran: False" in text
+    assert "skipped_reason: NEUROGPT_LLM_API_KEY is not set" in text
 
 
 def test_ambiguous_cases_can_expect_clarification_needed() -> None:
@@ -187,11 +190,64 @@ def test_mocked_live_provider_output_can_be_evaluated(tmp_path) -> None:
     assert "skipped" not in sections["live_llm"]
     assert sections["live_llm"]["metadata"]["provider"] == "openai_compatible"
     assert sections["live_llm"]["metadata"]["model"] == "mock-live-model"
+    assert sections["live_llm"]["metadata"]["live_ran"] is True
     assert sections["live_llm"]["total_cases"] == 1
+    assert all(
+        row["id"].startswith("ambiguous_lay_")
+        for row in sections["live_llm"]["case_rows"]
+    )
     assert sections["live_llm"]["evidence_grounded_rate"] == 1.0
     assert sections["live_merged"]["acceptable_family_match_rate"] == 1.0
     text = report.read_text(encoding="utf-8")
     assert "Safety verdict:" in text
+    assert "timestamp:" in text
+    assert "live_ran: True" in text
+
+
+def test_multiple_model_live_reports_generate_comparison(tmp_path) -> None:
+    def fake_live(case: dict, _provider: str, model: str | None) -> dict:
+        return {
+            "observations": [
+                {
+                    "raw_text": case["input"],
+                    "symptom_family": "sensory",
+                    "signal_strength": "possible",
+                    "onset": "unknown",
+                    "duration_text": "",
+                    "duration_category": "unknown",
+                    "laterality": "one_side",
+                    "progression": "unknown",
+                    "severity_qualifier": "unknown",
+                    "transient_or_resolved": False,
+                    "associated_red_flags": [],
+                    "evidence_text": case["input"],
+                    "clarification_needed": True,
+                    "clarification_reason": f"fake output from {model}",
+                    "possible_families": ["sensory", "weakness"],
+                    "confidence": 0.72,
+                }
+            ]
+        }
+
+    report_dir = tmp_path / "live_eval"
+    sections_by_model = obs_eval.run_model_evaluations(
+        ["model/a", "model-b"],
+        report_dir=report_dir,
+        provider="openai_compatible",
+        case_type="ambiguous_lay_description",
+        max_cases=2,
+        live_raw_provider=fake_live,
+    )
+
+    assert set(sections_by_model) == {"model/a", "model-b"}
+    assert (report_dir / "live_eval_model_a.md").exists()
+    assert (report_dir / "live_eval_model-b.md").exists()
+    comparison = (report_dir / "model_comparison.md").read_text(encoding="utf-8")
+    assert "model/a" in comparison
+    assert "model-b" in comparison
+    assert "schema_valid_rate" in comparison
+    assert "ambiguous_case_overconfidence_count" in comparison
+    assert sections_by_model["model/a"]["live_llm"]["total_cases"] == 2
 
 
 def test_live_action_and_concern_fields_are_ignored(tmp_path) -> None:

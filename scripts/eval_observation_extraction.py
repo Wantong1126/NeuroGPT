@@ -8,8 +8,10 @@ keeps action-tier decisions in the deterministic pipeline.
 from __future__ import annotations
 
 import argparse
+from datetime import datetime, timezone
 import json
 import os
+import re
 import sys
 from pathlib import Path
 from typing import Callable, Iterable
@@ -33,8 +35,21 @@ from pipeline.orchestrator import run_pipeline
 
 DEFAULT_CASES_PATH = ROOT / "evals" / "observation_cases.jsonl"
 DEFAULT_REPORT_PATH = ROOT / "reports" / "observation_eval_report.md"
+DEFAULT_LIVE_REPORT_DIR = ROOT / "reports" / "live_eval"
 ACTION_OVERRIDE_KEYS = {"action_level", "concern_level", "action", "diagnosis", "care_setting"}
 SUPPORTED_LIVE_PROVIDERS = {"openai_compatible"}
+COMPARISON_METRICS = [
+    "schema_valid_rate",
+    "evidence_grounded_rate",
+    "expected_family_match_rate",
+    "acceptable_family_match_rate",
+    "clarification_needed_match_rate",
+    "hallucinated_observation_count",
+    "unsafe_action_override_count",
+    "emergency_preservation_rate",
+    "overmedicalization_failure_count",
+    "ambiguous_case_overconfidence_count",
+]
 
 
 def load_cases(path: Path = DEFAULT_CASES_PATH) -> list[dict]:
@@ -403,6 +418,9 @@ def _live_metadata(
     model: str | None,
     requested: bool,
     case_count: int,
+    timestamp: str | None = None,
+    live_ran: bool = False,
+    skipped_reason: str | None = None,
 ) -> dict:
     resolved_model = model
     if resolved_model is None and provider == "openai_compatible":
@@ -412,15 +430,31 @@ def _live_metadata(
         "model": resolved_model or "n/a",
         "requested": requested,
         "case_count": case_count,
+        "timestamp": timestamp or _timestamp_utc(),
+        "live_ran": live_ran,
+        "skipped_reason": skipped_reason or "",
     }
 
 
 def _skip_section(reason: str, metadata: dict | None = None) -> dict:
+    if metadata is not None:
+        metadata = dict(metadata)
+        metadata["live_ran"] = False
+        metadata["skipped_reason"] = reason
     return {
         "skipped": reason,
         "metadata": metadata or {},
         "safety_verdict": "SKIPPED",
     }
+
+
+def _timestamp_utc() -> str:
+    return datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
+
+
+def _safe_report_name(model: str) -> str:
+    cleaned = re.sub(r"[^A-Za-z0-9_.-]+", "_", model.strip())
+    return cleaned.strip("._-") or "model"
 
 
 def _extract_live_llm_raw(case: dict, provider: str, model: str | None) -> dict:
@@ -445,6 +479,7 @@ def _evaluate_live_sections(
     *,
     provider: str,
     model: str | None,
+    timestamp: str | None = None,
     live_raw_provider: Callable[[dict, str, str | None], dict] | None = None,
 ) -> tuple[dict, dict]:
     raw_by_id: dict[str, dict] = {}
@@ -459,7 +494,14 @@ def _evaluate_live_sections(
 
     live_llm = _evaluate_path(cases, lambda case: _llm_case(case, raw_by_id[case["id"]]))
     live_merged = _evaluate_path(cases, lambda case: _merged_case(case, raw_by_id[case["id"]]))
-    metadata = _live_metadata(provider=provider, model=model, requested=True, case_count=len(cases))
+    metadata = _live_metadata(
+        provider=provider,
+        model=model,
+        requested=True,
+        case_count=len(cases),
+        timestamp=timestamp,
+        live_ran=True,
+    )
     if errors:
         metadata["errors"] = errors
     live_llm["metadata"] = metadata
@@ -481,6 +523,7 @@ def run_evaluation(
     live_raw_provider: Callable[[dict, str, str | None], dict] | None = None,
 ) -> dict:
     cases = load_cases(cases_path)
+    timestamp = _timestamp_utc()
     sections: dict[str, dict] = {
         "deterministic": _evaluate_path(cases, _deterministic_case),
     }
@@ -496,7 +539,13 @@ def run_evaluation(
 
     live_provider = provider or get_provider("symptom_extractor")
     live_cases = _selected_cases(cases, case_type=case_type, max_cases=max_cases)
-    metadata = _live_metadata(provider=live_provider, model=model, requested=live, case_count=len(live_cases))
+    metadata = _live_metadata(
+        provider=live_provider,
+        model=model,
+        requested=live,
+        case_count=len(live_cases),
+        timestamp=timestamp,
+    )
     if not live:
         reason = "Live eval not requested. Re-run with --live to evaluate a configured LLM provider."
         sections["live_llm"] = _skip_section(reason, metadata)
@@ -518,11 +567,82 @@ def run_evaluation(
             live_cases,
             provider=live_provider,
             model=model,
+            timestamp=timestamp,
             live_raw_provider=live_raw_provider,
         )
 
     write_report(sections, report_path)
     return sections
+
+
+def run_model_evaluations(
+    models: list[str],
+    *,
+    cases_path: Path = DEFAULT_CASES_PATH,
+    report_dir: Path = DEFAULT_LIVE_REPORT_DIR,
+    provider: str | None = None,
+    max_cases: int | None = None,
+    case_type: str | None = None,
+    live_raw_provider: Callable[[dict, str, str | None], dict] | None = None,
+) -> dict[str, dict]:
+    report_dir.mkdir(parents=True, exist_ok=True)
+    model_sections: dict[str, dict] = {}
+    for model in models:
+        report_path = report_dir / f"live_eval_{_safe_report_name(model)}.md"
+        model_sections[model] = run_evaluation(
+            cases_path=cases_path,
+            report_path=report_path,
+            live=True,
+            provider=provider,
+            model=model,
+            max_cases=max_cases,
+            case_type=case_type,
+            live_raw_provider=live_raw_provider,
+        )
+    if len(models) > 1:
+        write_model_comparison(model_sections, report_dir / "model_comparison.md")
+    return model_sections
+
+
+def write_model_comparison(
+    model_sections: dict[str, dict],
+    path: Path,
+    *,
+    section_name: str = "live_llm",
+) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    lines = [
+        "# Live Observation Model Comparison",
+        "",
+        "This comparison uses the live LLM observation section from each model report. It compares observation extraction behavior only; action tiers remain rule-controlled.",
+        "",
+        "| model | provider | cases | live_ran | safety_verdict | "
+        + " | ".join(COMPARISON_METRICS)
+        + " |",
+        "| --- | --- | --- | --- | --- | " + " | ".join("---" for _ in COMPARISON_METRICS) + " |",
+    ]
+    for requested_model, sections in model_sections.items():
+        metrics = sections.get(section_name, {})
+        metadata = metrics.get("metadata", {})
+        row = [
+            str(metadata.get("model") or requested_model),
+            str(metadata.get("provider", "n/a")),
+            str(metadata.get("case_count", metrics.get("total_cases", "n/a"))),
+            str(metadata.get("live_ran", False)),
+            str(metrics.get("safety_verdict", "n/a")),
+        ]
+        for metric_name in COMPARISON_METRICS:
+            value = metrics.get(metric_name)
+            row.append(_format_rate(value) if isinstance(value, float) or value is None else str(value))
+        lines.append("| " + " | ".join(row) + " |")
+
+    lines.extend(
+        [
+            "",
+            "PASS means the model met all configured safety thresholds for this run. PARTIAL or FAIL requires failure review before the model can be considered for any default extractor role.",
+        ]
+    )
+    path.write_text("\n".join(lines), encoding="utf-8")
 
 
 def _format_rate(value: float | None) -> str:
@@ -564,8 +684,11 @@ def write_report(sections: dict[str, dict], path: Path = DEFAULT_REPORT_PATH) ->
                 [
                     f"- provider: {metadata.get('provider', 'n/a')}",
                     f"- model: {metadata.get('model', 'n/a')}",
+                    f"- timestamp: {metadata.get('timestamp', 'n/a')}",
                     f"- live_requested: {metadata.get('requested', False)}",
+                    f"- live_ran: {metadata.get('live_ran', False)}",
                     f"- live_cases: {metadata.get('case_count', 'n/a')}",
+                    f"- skipped_reason: {metadata.get('skipped_reason', '') or 'n/a'}",
                     f"- safety_verdict: {metrics.get('safety_verdict', 'n/a')}",
                     "",
                 ]
@@ -605,12 +728,31 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--cases", type=Path, default=DEFAULT_CASES_PATH)
     parser.add_argument("--report", type=Path, default=DEFAULT_REPORT_PATH)
+    parser.add_argument("--report-dir", type=Path, default=DEFAULT_LIVE_REPORT_DIR)
     parser.add_argument("--live", action="store_true", help="Run explicit live LLM evaluation.")
     parser.add_argument("--provider", default=None, help="Live eval provider override, e.g. openai_compatible.")
     parser.add_argument("--model", default=None, help="Live eval model override. Defaults to NEUROGPT_LLM_MODEL.")
+    parser.add_argument("--models", nargs="+", default=None, help="Run live eval for one or more candidate models and write separate reports.")
     parser.add_argument("--max-cases", type=int, default=None, help="Limit live eval to the first N selected cases.")
     parser.add_argument("--case-type", default=None, help="Limit live eval to one case_type.")
     args = parser.parse_args()
+
+    if args.model and args.models:
+        parser.error("Use either --model or --models, not both.")
+
+    if args.models:
+        run_model_evaluations(
+            args.models,
+            cases_path=args.cases,
+            report_dir=args.report_dir,
+            provider=args.provider,
+            max_cases=args.max_cases,
+            case_type=args.case_type,
+        )
+        print(f"Wrote model reports to {args.report_dir}")
+        if len(args.models) > 1:
+            print(f"Wrote {args.report_dir / 'model_comparison.md'}")
+        return 0
 
     run_evaluation(
         args.cases,
