@@ -41,6 +41,14 @@ python scripts/eval_observation_extraction.py --live --provider openai_compatibl
 python scripts/eval_observation_extraction.py --live --provider openai_compatible --model <MODEL_NAME> --case-type ambiguous_lay_description
 ```
 
+Use debug mode when live reports show empty accepted observations:
+
+```powershell
+python scripts/eval_observation_extraction.py --live --provider openai_compatible --model <MODEL_NAME> --max-cases 3 --save-live-raw --report reports/live_eval_debug/<MODEL_NAME>_debug.md
+```
+
+The Markdown report will include API success, raw JSON status, raw observation count, accepted observation count, top-level keys, and rejection reasons. `--save-live-raw` writes a local JSONL debug file next to the report by default; it stores case id, provider/model, raw response body or parsed JSON, parse status, and rejection reasons. It does not store API keys or request headers.
+
 Write a named full live report:
 
 ```powershell
@@ -62,6 +70,8 @@ The comparison report is written to:
 ```text
 reports/live_eval/model_comparison.md
 ```
+
+If every compared model has zero accepted live observations, the comparison report is marked not meaningful. In that state, debug raw output and rejection reasons must be reviewed before selecting a model.
 
 It compares the live LLM observation section across candidates:
 

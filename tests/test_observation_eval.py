@@ -250,6 +250,150 @@ def test_multiple_model_live_reports_generate_comparison(tmp_path) -> None:
     assert sections_by_model["model/a"]["live_llm"]["total_cases"] == 2
 
 
+def test_live_debug_reports_accepted_and_rejected_observations(tmp_path) -> None:
+    case = {
+        "id": "debug_case",
+        "input": "right hand numb",
+        "case_type": "missing_info",
+        "expected_families": ["sensory"],
+        "acceptable_families": ["sensory"],
+        "expected_clarification_needed": True,
+    }
+    cases_path = tmp_path / "cases.jsonl"
+    cases_path.write_text(json.dumps(case) + "\n", encoding="utf-8")
+
+    def observation(**overrides: object) -> dict:
+        data = {
+            "raw_text": case["input"],
+            "symptom_family": "sensory",
+            "signal_strength": "possible",
+            "onset": "unknown",
+            "duration_text": "",
+            "duration_category": "unknown",
+            "laterality": "one_side",
+            "progression": "unknown",
+            "severity_qualifier": "unknown",
+            "transient_or_resolved": False,
+            "associated_red_flags": [],
+            "evidence_text": "right hand numb",
+            "clarification_needed": True,
+            "clarification_reason": "timing unclear",
+            "possible_families": ["sensory"],
+            "confidence": 0.8,
+        }
+        data.update(overrides)
+        return data
+
+    def fake_live(_case: dict, _provider: str, _model: str | None) -> dict:
+        return {
+            "observations": [
+                observation(),
+                observation(confidence=0.2),
+                observation(evidence_text=""),
+                observation(evidence_text="unsupported wording"),
+                "not a dict",
+            ]
+        }
+
+    raw_debug_path = tmp_path / "raw_debug.jsonl"
+    report = tmp_path / "live_debug.md"
+    sections = obs_eval.run_evaluation(
+        cases_path=cases_path,
+        report_path=report,
+        live=True,
+        provider="openai_compatible",
+        model="debug-model",
+        live_raw_provider=fake_live,
+        save_live_raw=True,
+        live_raw_debug_path=raw_debug_path,
+    )
+
+    live_llm = sections["live_llm"]
+    assert live_llm["raw_observation_count"] == 5
+    assert live_llm["accepted_observation_count"] == 1
+    assert live_llm["rejection_reason_counts"]["low_confidence"] == 1
+    assert live_llm["rejection_reason_counts"]["empty_evidence_text"] == 1
+    assert live_llm["rejection_reason_counts"]["evidence_not_in_raw_text"] == 1
+    assert live_llm["rejection_reason_counts"]["item_not_dict"] == 1
+    text = report.read_text(encoding="utf-8")
+    assert "### Live LLM Debug" in text
+    assert "accepted_observation_count | 1" in text
+    raw_records = [
+        json.loads(line)
+        for line in raw_debug_path.read_text(encoding="utf-8").splitlines()
+    ]
+    assert raw_records[0]["case_id"] == "debug_case"
+    assert raw_records[0]["accepted_observation_count"] == 1
+
+
+def test_live_debug_reports_api_error_and_missing_observations_key(tmp_path) -> None:
+    cases = [
+        {
+            "id": "api_error_case",
+            "input": "right hand numb",
+            "case_type": "missing_info",
+            "expected_families": ["sensory"],
+            "acceptable_families": ["sensory"],
+            "expected_clarification_needed": True,
+        },
+        {
+            "id": "missing_key_case",
+            "input": "speech unclear",
+            "case_type": "missing_info",
+            "expected_families": ["speech_language"],
+            "acceptable_families": ["speech_language"],
+            "expected_clarification_needed": True,
+        },
+    ]
+    cases_path = tmp_path / "cases.jsonl"
+    cases_path.write_text(
+        "\n".join(json.dumps(case) for case in cases) + "\n",
+        encoding="utf-8",
+    )
+
+    def fake_live(case: dict, _provider: str, _model: str | None) -> dict:
+        if case["id"] == "api_error_case":
+            raise RuntimeError("provider unavailable")
+        return {"not_observations": []}
+
+    report = tmp_path / "live_debug.md"
+    sections = obs_eval.run_evaluation(
+        cases_path=cases_path,
+        report_path=report,
+        live=True,
+        provider="openai_compatible",
+        model="debug-model",
+        live_raw_provider=fake_live,
+    )
+
+    live_llm = sections["live_llm"]
+    assert live_llm["accepted_observation_count"] == 0
+    assert live_llm["rejection_reason_counts"]["api_error"] == 1
+    assert live_llm["rejection_reason_counts"]["missing_observations_key"] == 1
+    text = report.read_text(encoding="utf-8")
+    assert "Live model produced no accepted observations" in text
+    assert "api_error:1" in text
+    assert "missing_observations_key:1" in text
+
+
+def test_model_comparison_marks_zero_accepted_observations_not_meaningful(tmp_path) -> None:
+    def fake_live(_case: dict, _provider: str, _model: str | None) -> dict:
+        return {"observations": []}
+
+    report_dir = tmp_path / "live_eval"
+    obs_eval.run_model_evaluations(
+        ["model-a", "model-b"],
+        report_dir=report_dir,
+        provider="openai_compatible",
+        max_cases=1,
+        live_raw_provider=fake_live,
+    )
+
+    comparison = (report_dir / "model_comparison.md").read_text(encoding="utf-8")
+    assert "Comparison not meaningful" in comparison
+    assert "zero accepted observations" in comparison
+
+
 def test_live_action_and_concern_fields_are_ignored(tmp_path) -> None:
     case = {
         "id": "live_unsafe_fields",

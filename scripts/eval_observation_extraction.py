@@ -8,6 +8,7 @@ keeps action-tier decisions in the deterministic pipeline.
 from __future__ import annotations
 
 import argparse
+from collections import Counter
 from datetime import datetime, timezone
 import json
 import os
@@ -36,8 +37,22 @@ from pipeline.orchestrator import run_pipeline
 DEFAULT_CASES_PATH = ROOT / "evals" / "observation_cases.jsonl"
 DEFAULT_REPORT_PATH = ROOT / "reports" / "observation_eval_report.md"
 DEFAULT_LIVE_REPORT_DIR = ROOT / "reports" / "live_eval"
+DEFAULT_LIVE_DEBUG_DIR = ROOT / "reports" / "live_eval_debug"
 ACTION_OVERRIDE_KEYS = {"action_level", "concern_level", "action", "diagnosis", "care_setting"}
 SUPPORTED_LIVE_PROVIDERS = {"openai_compatible"}
+REJECTION_REASONS = [
+    "api_error",
+    "json_parse_error",
+    "missing_observations_key",
+    "observations_not_list",
+    "item_not_dict",
+    "pydantic_validation_error",
+    "low_confidence",
+    "empty_evidence_text",
+    "evidence_not_in_raw_text",
+    "unsupported_shape",
+    "unknown_error",
+]
 COMPARISON_METRICS = [
     "schema_valid_rate",
     "evidence_grounded_rate",
@@ -214,27 +229,64 @@ def _deterministic_case(case: dict) -> dict:
 
 
 def _llm_case(case: dict, raw: dict) -> dict:
-    observations = symptom_extractor._parse_llm_observations(raw, case["input"])
+    observations, parse_debug = symptom_extractor._parse_llm_observations_with_debug(raw, case["input"])
+    debug = _live_case_debug(raw, parse_debug)
     return {
         "case_id": case["id"],
         "observations": observations,
         "raw": raw,
         "pipeline": _pipeline_from_observations(case["input"], observations, raw),
-        "schema_valid": isinstance(raw.get("observations", []), list),
+        "schema_valid": _raw_observation_schema_valid(raw),
+        "debug": debug,
     }
 
 
 def _merged_case(case: dict, raw: dict) -> dict:
     deterministic = normalize_observations(case["input"])
-    llm_observations = symptom_extractor._parse_llm_observations(raw, case["input"])
+    llm_observations, parse_debug = symptom_extractor._parse_llm_observations_with_debug(raw, case["input"])
     observations = symptom_extractor.merge_observations(deterministic, llm_observations)
+    debug = _live_case_debug(raw, parse_debug)
     return {
         "case_id": case["id"],
         "observations": observations,
         "raw": raw,
         "pipeline": _pipeline_from_observations(case["input"], observations, raw),
-        "schema_valid": isinstance(raw.get("observations", []), list),
+        "schema_valid": _raw_observation_schema_valid(raw),
+        "debug": debug,
     }
+
+
+def _live_case_debug(raw: object, parse_debug: dict) -> dict:
+    rejection_reasons = Counter(parse_debug.get("rejection_reasons", {}))
+    if isinstance(raw, dict):
+        api_error = raw.get("_live_eval_error")
+        json_parse_error = raw.get("_json_parse_error")
+        if api_error:
+            rejection_reasons["api_error"] += 1
+        if json_parse_error:
+            rejection_reasons["json_parse_error"] += 1
+        api_call_succeeded = not bool(api_error)
+        raw_json_returned = api_call_succeeded and not bool(json_parse_error) and "observations" in raw
+    else:
+        api_call_succeeded = True
+        raw_json_returned = isinstance(raw, list)
+
+    return {
+        "api_call_succeeded": api_call_succeeded,
+        "raw_json_returned": raw_json_returned,
+        "raw_top_level_keys": parse_debug.get("raw_top_level_keys", []),
+        "raw_observation_count": parse_debug.get("raw_observation_count", 0),
+        "accepted_observation_count": parse_debug.get("accepted_observation_count", 0),
+        "rejection_reasons": dict(sorted(rejection_reasons.items())),
+    }
+
+
+def _raw_observation_schema_valid(raw: object) -> bool:
+    if not isinstance(raw, dict):
+        return False
+    if raw.get("_live_eval_error") or raw.get("_json_parse_error"):
+        return False
+    return isinstance(raw.get("observations", []), list)
 
 
 def evaluate_results(cases: list[dict], results: list[dict]) -> dict:
@@ -256,6 +308,12 @@ def evaluate_results(cases: list[dict], results: list[dict]) -> dict:
     emergency_preserved = 0
     overmedicalization_failure_count = 0
     ambiguous_case_overconfidence_count = 0
+    debug_case_count = 0
+    api_success_count = 0
+    raw_json_returned_count = 0
+    raw_observation_count = 0
+    accepted_observation_count = 0
+    rejection_reason_counts: Counter[str] = Counter()
     case_rows: list[dict] = []
 
     for case in cases:
@@ -263,6 +321,14 @@ def evaluate_results(cases: list[dict], results: list[dict]) -> dict:
         observations = result["observations"]
         pipeline = result["pipeline"]
         schema_valid += int(result["schema_valid"])
+        debug = result.get("debug")
+        if debug:
+            debug_case_count += 1
+            api_success_count += int(bool(debug.get("api_call_succeeded")))
+            raw_json_returned_count += int(bool(debug.get("raw_json_returned")))
+            raw_observation_count += int(debug.get("raw_observation_count", 0))
+            accepted_observation_count += int(debug.get("accepted_observation_count", 0))
+            rejection_reason_counts.update(debug.get("rejection_reasons", {}))
 
         expected_match = _expected_family_match(case, observations)
         if expected_match is not None:
@@ -357,6 +423,7 @@ def evaluate_results(cases: list[dict], results: list[dict]) -> dict:
                 ),
                 "ambiguous_overconfidence": overconfident,
                 "failures": failures,
+                "debug": debug,
             }
         )
 
@@ -377,6 +444,26 @@ def evaluate_results(cases: list[dict], results: list[dict]) -> dict:
         "case_rows": case_rows,
         "failed_case_rows": [row for row in case_rows if row["failures"]],
     }
+    if debug_case_count:
+        metrics.update(
+            {
+                "debug_case_count": debug_case_count,
+                "api_success_count": api_success_count,
+                "raw_json_returned_count": raw_json_returned_count,
+                "raw_observation_count": raw_observation_count,
+                "accepted_observation_count": accepted_observation_count,
+                "zero_accepted_observation_cases": sum(
+                    1
+                    for row in case_rows
+                    if row.get("debug") and row["debug"].get("accepted_observation_count", 0) == 0
+                ),
+                "rejection_reason_counts": {
+                    reason: rejection_reason_counts.get(reason, 0)
+                    for reason in REJECTION_REASONS
+                    if rejection_reason_counts.get(reason, 0)
+                },
+            }
+        )
     metrics["safety_verdict"] = _safety_verdict(metrics)
     return metrics
 
@@ -466,12 +553,37 @@ def _extract_live_llm_raw(case: dict, provider: str, model: str | None) -> dict:
         "triage advice, or care recommendations.\n\nUser text: {user_input}"
     )
     user_prompt = template.format(user_input=case["input"])
-    return llm_client.call_structured(
+    raw_text = llm_client.call(
         user_prompt,
-        symptom_extractor.SYSTEM_PROMPT,
-        symptom_extractor.OBSERVATION_SCHEMA,
+        system_prompt=(
+            symptom_extractor.SYSTEM_PROMPT
+            + "\n\nIMPORTANT: Your response MUST be valid JSON conforming to this schema:\n"
+            + symptom_extractor.OBSERVATION_SCHEMA
+            + "\nReturn ONLY the JSON object, no additional text."
+        ),
         model=model,
+        json_mode=True,
     )
+    try:
+        parsed = json.loads(_strip_json_fences(raw_text))
+    except json.JSONDecodeError as exc:
+        return {
+            "_json_parse_error": str(exc),
+            "_live_eval_raw_body": raw_text,
+        }
+    if isinstance(parsed, dict):
+        parsed["_live_eval_raw_body"] = raw_text
+    return parsed
+
+
+def _strip_json_fences(raw_text: str) -> str:
+    stripped = raw_text.strip()
+    if stripped.startswith("```"):
+        stripped = stripped.split("```")[1]
+        if stripped.startswith("json"):
+            stripped = stripped[4:]
+        stripped = stripped.strip()
+    return stripped
 
 
 def _evaluate_live_sections(
@@ -481,9 +593,12 @@ def _evaluate_live_sections(
     model: str | None,
     timestamp: str | None = None,
     live_raw_provider: Callable[[dict, str, str | None], dict] | None = None,
+    save_live_raw: bool = False,
+    live_raw_debug_path: Path | None = None,
 ) -> tuple[dict, dict]:
     raw_by_id: dict[str, dict] = {}
     errors: dict[str, str] = {}
+    raw_debug_records: list[dict] = []
     raw_provider = live_raw_provider or _extract_live_llm_raw
     for case in cases:
         try:
@@ -494,6 +609,21 @@ def _evaluate_live_sections(
 
     live_llm = _evaluate_path(cases, lambda case: _llm_case(case, raw_by_id[case["id"]]))
     live_merged = _evaluate_path(cases, lambda case: _merged_case(case, raw_by_id[case["id"]]))
+    if save_live_raw:
+        by_case_id = {row["id"]: row for row in live_llm.get("case_rows", [])}
+        for case in cases:
+            raw = raw_by_id[case["id"]]
+            row_debug = by_case_id.get(case["id"], {}).get("debug", {})
+            raw_debug_records.append(
+                _raw_debug_record(
+                    case_id=case["id"],
+                    provider=provider,
+                    model=model,
+                    raw=raw,
+                    debug=row_debug,
+                )
+            )
+        _write_live_raw_debug_jsonl(raw_debug_records, live_raw_debug_path or _default_live_raw_debug_path(model))
     metadata = _live_metadata(
         provider=provider,
         model=model,
@@ -504,11 +634,52 @@ def _evaluate_live_sections(
     )
     if errors:
         metadata["errors"] = errors
+    if save_live_raw:
+        metadata["raw_debug_path"] = str(live_raw_debug_path or _default_live_raw_debug_path(model))
     live_llm["metadata"] = metadata
     live_merged["metadata"] = metadata
     live_llm["safety_verdict"] = _safety_verdict(live_llm)
     live_merged["safety_verdict"] = _safety_verdict(live_merged)
     return live_llm, live_merged
+
+
+def _default_live_raw_debug_path(model: str | None) -> Path:
+    return DEFAULT_LIVE_DEBUG_DIR / f"{_safe_report_name(model or 'model')}_raw_debug.jsonl"
+
+
+def _raw_debug_record(
+    *,
+    case_id: str,
+    provider: str,
+    model: str | None,
+    raw: object,
+    debug: dict,
+) -> dict:
+    raw_response_body = raw.get("_live_eval_raw_body") if isinstance(raw, dict) else None
+    parsed_json = None
+    if isinstance(raw, dict):
+        parsed_json = {key: value for key, value in raw.items() if key != "_live_eval_raw_body"}
+    elif isinstance(raw, list):
+        parsed_json = raw
+    return {
+        "case_id": case_id,
+        "provider": provider,
+        "model": model or "n/a",
+        "api_call_succeeded": debug.get("api_call_succeeded", False),
+        "raw_json_returned": debug.get("raw_json_returned", False),
+        "raw_response_body": raw_response_body,
+        "parsed_json": parsed_json,
+        "raw_top_level_keys": debug.get("raw_top_level_keys", []),
+        "raw_observation_count": debug.get("raw_observation_count", 0),
+        "accepted_observation_count": debug.get("accepted_observation_count", 0),
+        "rejection_reasons": debug.get("rejection_reasons", {}),
+    }
+
+
+def _write_live_raw_debug_jsonl(records: list[dict], path: Path) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    lines = [json.dumps(record, ensure_ascii=False, sort_keys=True) for record in records]
+    path.write_text("\n".join(lines) + ("\n" if lines else ""), encoding="utf-8")
 
 
 def run_evaluation(
@@ -521,6 +692,8 @@ def run_evaluation(
     max_cases: int | None = None,
     case_type: str | None = None,
     live_raw_provider: Callable[[dict, str, str | None], dict] | None = None,
+    save_live_raw: bool = False,
+    live_raw_debug_path: Path | None = None,
 ) -> dict:
     cases = load_cases(cases_path)
     timestamp = _timestamp_utc()
@@ -569,6 +742,8 @@ def run_evaluation(
             model=model,
             timestamp=timestamp,
             live_raw_provider=live_raw_provider,
+            save_live_raw=save_live_raw,
+            live_raw_debug_path=live_raw_debug_path,
         )
 
     write_report(sections, report_path)
@@ -584,6 +759,7 @@ def run_model_evaluations(
     max_cases: int | None = None,
     case_type: str | None = None,
     live_raw_provider: Callable[[dict, str, str | None], dict] | None = None,
+    save_live_raw: bool = False,
 ) -> dict[str, dict]:
     report_dir.mkdir(parents=True, exist_ok=True)
     model_sections: dict[str, dict] = {}
@@ -598,6 +774,12 @@ def run_model_evaluations(
             max_cases=max_cases,
             case_type=case_type,
             live_raw_provider=live_raw_provider,
+            save_live_raw=save_live_raw,
+            live_raw_debug_path=(
+                report_dir / "raw_debug" / f"{_safe_report_name(model)}_raw_debug.jsonl"
+                if save_live_raw
+                else None
+            ),
         )
     if len(models) > 1:
         write_model_comparison(model_sections, report_dir / "model_comparison.md")
@@ -611,6 +793,14 @@ def write_model_comparison(
     section_name: str = "live_llm",
 ) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
+    comparison_not_meaningful = False
+    live_metrics = [sections.get(section_name, {}) for sections in model_sections.values()]
+    if live_metrics and all(
+        metrics.get("metadata", {}).get("live_ran")
+        and metrics.get("accepted_observation_count") == 0
+        for metrics in live_metrics
+    ):
+        comparison_not_meaningful = True
     lines = [
         "# Live Observation Model Comparison",
         "",
@@ -636,6 +826,14 @@ def write_model_comparison(
             row.append(_format_rate(value) if isinstance(value, float) or value is None else str(value))
         lines.append("| " + " | ".join(row) + " |")
 
+    if comparison_not_meaningful:
+        lines.extend(
+            [
+                "",
+                "**Comparison not meaningful:** all live models produced zero accepted observations. Review raw-output debug files and rejection reasons before selecting a model.",
+            ]
+        )
+
     lines.extend(
         [
             "",
@@ -649,6 +847,12 @@ def _format_rate(value: float | None) -> str:
     if value is None:
         return "n/a"
     return f"{value:.3f}"
+
+
+def _format_rejection_counts(counts: dict) -> str:
+    if not counts:
+        return "none"
+    return ", ".join(f"{reason}:{count}" for reason, count in sorted(counts.items()))
 
 
 def write_report(sections: dict[str, dict], path: Path = DEFAULT_REPORT_PATH) -> None:
@@ -689,6 +893,7 @@ def write_report(sections: dict[str, dict], path: Path = DEFAULT_REPORT_PATH) ->
                     f"- live_ran: {metadata.get('live_ran', False)}",
                     f"- live_cases: {metadata.get('case_count', 'n/a')}",
                     f"- skipped_reason: {metadata.get('skipped_reason', '') or 'n/a'}",
+                    f"- raw_debug_path: {metadata.get('raw_debug_path', 'n/a')}",
                     f"- safety_verdict: {metrics.get('safety_verdict', 'n/a')}",
                     "",
                 ]
@@ -706,6 +911,45 @@ def write_report(sections: dict[str, dict], path: Path = DEFAULT_REPORT_PATH) ->
             else:
                 rendered = str(value)
             lines.append(f"| {metric_name} | {rendered} |")
+        if metrics.get("debug_case_count") and metadata.get("requested"):
+            if metrics.get("accepted_observation_count") == 0:
+                lines.extend(
+                    [
+                        "",
+                        "**Live model produced no accepted observations. Model comparison is not meaningful until raw-output/rejection reasons are reviewed.**",
+                    ]
+                )
+            lines.extend(
+                [
+                    "",
+                    "### Live LLM Debug",
+                    "",
+                    "| debug field | value |",
+                    "| --- | --- |",
+                    f"| debug_case_count | {metrics.get('debug_case_count')} |",
+                    f"| api_success_count | {metrics.get('api_success_count')} |",
+                    f"| raw_json_returned_count | {metrics.get('raw_json_returned_count')} |",
+                    f"| raw_observation_count | {metrics.get('raw_observation_count')} |",
+                    f"| accepted_observation_count | {metrics.get('accepted_observation_count')} |",
+                    f"| zero_accepted_observation_cases | {metrics.get('zero_accepted_observation_cases')} |",
+                    f"| rejection_reason_counts | {_format_rejection_counts(metrics.get('rejection_reason_counts', {}))} |",
+                    "",
+                    "| case | api | raw_json | raw_keys | raw_obs | accepted_obs | rejection_reasons |",
+                    "| --- | --- | --- | --- | --- | --- | --- |",
+                ]
+            )
+            for row in metrics.get("case_rows", []):
+                debug = row.get("debug") or {}
+                if not debug:
+                    continue
+                lines.append(
+                    f"| {row['id']} | {debug.get('api_call_succeeded')} | "
+                    f"{debug.get('raw_json_returned')} | "
+                    f"{', '.join(debug.get('raw_top_level_keys', []))} | "
+                    f"{debug.get('raw_observation_count', 0)} | "
+                    f"{debug.get('accepted_observation_count', 0)} | "
+                    f"{_format_rejection_counts(debug.get('rejection_reasons', {}))} |"
+                )
         lines.extend(["", "| case | action | families | clarify | grounded | hallucinated |", "| --- | --- | --- | --- | --- | --- |"])
         for row in metrics.get("case_rows", []):
             families = ", ".join(row["families"])
@@ -735,6 +979,7 @@ def main() -> int:
     parser.add_argument("--models", nargs="+", default=None, help="Run live eval for one or more candidate models and write separate reports.")
     parser.add_argument("--max-cases", type=int, default=None, help="Limit live eval to the first N selected cases.")
     parser.add_argument("--case-type", default=None, help="Limit live eval to one case_type.")
+    parser.add_argument("--save-live-raw", action="store_true", help="Save redacted raw live model output/debug JSONL for local diagnostics.")
     args = parser.parse_args()
 
     if args.model and args.models:
@@ -748,6 +993,7 @@ def main() -> int:
             provider=args.provider,
             max_cases=args.max_cases,
             case_type=args.case_type,
+            save_live_raw=args.save_live_raw,
         )
         print(f"Wrote model reports to {args.report_dir}")
         if len(args.models) > 1:
@@ -762,6 +1008,12 @@ def main() -> int:
         model=args.model,
         max_cases=args.max_cases,
         case_type=args.case_type,
+        save_live_raw=args.save_live_raw,
+        live_raw_debug_path=(
+            args.report.parent / f"{_safe_report_name(args.model or 'model')}_raw_debug.jsonl"
+            if args.save_live_raw
+            else None
+        ),
     )
     print(f"Wrote {args.report}")
     return 0

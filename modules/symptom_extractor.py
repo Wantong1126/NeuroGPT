@@ -6,6 +6,7 @@ Uses a provider-selected extractor and deterministic lay-language normalization.
 from __future__ import annotations
 
 import json
+from collections import Counter
 
 from core.models import ExtractedSymptoms, Laterality, Onset, Progression, RedFlags
 from core.observations import NormalizedObservation
@@ -79,19 +80,39 @@ def _extract_llm_observations(user_input: str) -> tuple[dict, list[NormalizedObs
 
 
 def _parse_llm_observations(raw: object, user_input: str) -> list[NormalizedObservation]:
+    observations, _debug = _parse_llm_observations_with_debug(raw, user_input)
+    return observations
+
+
+def _parse_llm_observations_with_debug(
+    raw: object,
+    user_input: str,
+) -> tuple[list[NormalizedObservation], dict]:
+    rejection_reasons: Counter[str] = Counter()
+    raw_top_level_keys: list[str] = []
+    raw_observation_count = 0
+
     if isinstance(raw, dict):
-        raw_items = raw.get("observations", [])
+        raw_top_level_keys = sorted(str(key) for key in raw.keys())
+        if "observations" not in raw:
+            rejection_reasons["missing_observations_key"] += 1
+            return [], _llm_parse_debug(raw_top_level_keys, raw_observation_count, 0, rejection_reasons)
+        raw_items = raw.get("observations")
     elif isinstance(raw, list):
         raw_items = raw
     else:
-        return []
+        rejection_reasons["unsupported_shape"] += 1
+        return [], _llm_parse_debug(raw_top_level_keys, raw_observation_count, 0, rejection_reasons)
 
     if not isinstance(raw_items, list):
-        return []
+        rejection_reasons["observations_not_list"] += 1
+        return [], _llm_parse_debug(raw_top_level_keys, raw_observation_count, 0, rejection_reasons)
 
     parsed: list[NormalizedObservation] = []
+    raw_observation_count = len(raw_items)
     for item in raw_items:
         if not isinstance(item, dict):
+            rejection_reasons["item_not_dict"] += 1
             continue
         data = dict(item)
         data["raw_text"] = data.get("raw_text") or user_input
@@ -99,18 +120,42 @@ def _parse_llm_observations(raw: object, user_input: str) -> list[NormalizedObse
         try:
             observation = NormalizedObservation(**data)
         except Exception:
+            rejection_reasons["pydantic_validation_error"] += 1
             continue
-        if _valid_llm_observation(observation):
-            parsed.append(observation)
-    return parsed
+        rejection_reason = _llm_observation_rejection_reason(observation)
+        if rejection_reason is not None:
+            rejection_reasons[rejection_reason] += 1
+            continue
+        parsed.append(observation)
+    return parsed, _llm_parse_debug(raw_top_level_keys, raw_observation_count, len(parsed), rejection_reasons)
+
+
+def _llm_parse_debug(
+    raw_top_level_keys: list[str],
+    raw_observation_count: int,
+    accepted_observation_count: int,
+    rejection_reasons: Counter[str],
+) -> dict:
+    return {
+        "raw_top_level_keys": raw_top_level_keys,
+        "raw_observation_count": raw_observation_count,
+        "accepted_observation_count": accepted_observation_count,
+        "rejection_reasons": dict(sorted(rejection_reasons.items())),
+    }
+
+
+def _llm_observation_rejection_reason(observation: NormalizedObservation) -> str | None:
+    if observation.confidence < 0.5:
+        return "low_confidence"
+    if not observation.evidence_text.strip():
+        return "empty_evidence_text"
+    if observation.evidence_text.strip().lower() not in observation.raw_text.lower():
+        return "evidence_not_in_raw_text"
+    return None
 
 
 def _valid_llm_observation(observation: NormalizedObservation) -> bool:
-    if observation.confidence < 0.5:
-        return False
-    if not observation.evidence_text.strip():
-        return False
-    return observation.evidence_text.strip().lower() in observation.raw_text.lower()
+    return _llm_observation_rejection_reason(observation) is None
 
 
 def _strength_rank(strength: str) -> int:
