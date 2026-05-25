@@ -7,6 +7,7 @@ import json
 from pathlib import Path
 
 from core.observations import NormalizedObservation
+from modules import symptom_extractor
 from modules.symptom_normalizer import normalize_observations
 from scripts import eval_observation_extraction as obs_eval
 
@@ -376,6 +377,215 @@ def test_live_debug_reports_api_error_and_missing_observations_key(tmp_path) -> 
     assert "missing_observations_key:1" in text
 
 
+def test_llm_parser_normalizes_recoverable_live_field_formats() -> None:
+    raw = {
+        "observations": [
+            {
+                "raw_text": "right hand feels off but I cannot describe it",
+                "symptom_family": "unknown",
+                "signal_strength": "possible",
+                "onset": "unknown",
+                "duration_text": None,
+                "duration_category": "unknown",
+                "laterality": "right",
+                "progression": "unknown",
+                "severity_qualifier": "unknown",
+                "transient_or_resolved": False,
+                "associated_red_flags": None,
+                "evidence_text": "right hand feels off",
+                "clarification_needed": True,
+                "clarification_reason": None,
+                "possible_families": ["weakness", "sensory", "unknown"],
+                "confidence": "0.72",
+            }
+        ]
+    }
+
+    observations, debug = symptom_extractor._parse_llm_observations_with_debug(
+        raw,
+        "right hand feels off but I cannot describe it",
+    )
+
+    assert debug["accepted_observation_count"] == 1
+    assert debug["rejection_reasons"] == {}
+    assert observations[0].symptom_family == "other"
+    assert observations[0].laterality == "one_side"
+    assert observations[0].confidence == 0.72
+    assert observations[0].associated_red_flags == []
+    assert observations[0].possible_families == ["weakness", "sensory", "other"]
+
+
+def test_llm_parser_rejects_unmapped_invalid_enum() -> None:
+    raw = {
+        "observations": [
+            {
+                "raw_text": "right hand numb",
+                "symptom_family": "motor",
+                "signal_strength": "possible",
+                "onset": "unknown",
+                "duration_text": "",
+                "duration_category": "unknown",
+                "laterality": "one_side",
+                "progression": "unknown",
+                "severity_qualifier": "unknown",
+                "transient_or_resolved": False,
+                "associated_red_flags": [],
+                "evidence_text": "right hand numb",
+                "clarification_needed": True,
+                "clarification_reason": "timing unclear",
+                "possible_families": ["weakness"],
+                "confidence": 0.8,
+            }
+        ]
+    }
+
+    observations, debug = symptom_extractor._parse_llm_observations_with_debug(raw, "right hand numb")
+
+    assert observations == []
+    assert debug["rejection_reasons"]["pydantic_validation_error"] == 1
+    assert debug["rejection_reasons"]["invalid_enum_value"] == 1
+
+
+def test_llm_parser_rejects_unmapped_invalid_possible_family() -> None:
+    raw = {
+        "observations": [
+            {
+                "raw_text": "right side feels off but unclear",
+                "symptom_family": "other",
+                "signal_strength": "possible",
+                "onset": "unknown",
+                "duration_text": "",
+                "duration_category": "unknown",
+                "laterality": "one_side",
+                "progression": "unknown",
+                "severity_qualifier": "unknown",
+                "transient_or_resolved": False,
+                "associated_red_flags": [],
+                "evidence_text": "right side feels off",
+                "clarification_needed": True,
+                "clarification_reason": "specific symptom unclear",
+                "possible_families": ["motor"],
+                "confidence": 0.8,
+            }
+        ]
+    }
+
+    observations, debug = symptom_extractor._parse_llm_observations_with_debug(
+        raw,
+        "right side feels off but unclear",
+    )
+
+    assert observations == []
+    assert debug["rejection_reasons"]["pydantic_validation_error"] == 1
+    assert debug["rejection_reasons"]["invalid_enum_value"] == 1
+
+
+def test_llm_parser_keeps_low_confidence_rejection_after_enum_normalization() -> None:
+    raw = {
+        "observations": [
+            {
+                "raw_text": "right side feels off but unclear",
+                "symptom_family": "unknown",
+                "signal_strength": "possible",
+                "onset": "unknown",
+                "duration_text": "",
+                "duration_category": "unknown",
+                "laterality": "one_side",
+                "progression": "unknown",
+                "severity_qualifier": "unknown",
+                "transient_or_resolved": False,
+                "associated_red_flags": [],
+                "evidence_text": "right side feels off",
+                "clarification_needed": True,
+                "clarification_reason": "specific symptom unclear",
+                "possible_families": ["weakness", "sensory"],
+                "confidence": 0.3,
+            }
+        ]
+    }
+
+    observations, debug = symptom_extractor._parse_llm_observations_with_debug(
+        raw,
+        "right side feels off but unclear",
+    )
+
+    assert observations == []
+    assert debug["rejection_reasons"] == {"low_confidence": 1}
+
+
+def test_llm_parser_still_rejects_ungrounded_evidence() -> None:
+    raw = {
+        "observations": [
+            {
+                "raw_text": "right hand numb",
+                "symptom_family": "sensory",
+                "signal_strength": "possible",
+                "onset": "unknown",
+                "duration_text": "",
+                "duration_category": "unknown",
+                "laterality": "one_side",
+                "progression": "unknown",
+                "severity_qualifier": "unknown",
+                "transient_or_resolved": False,
+                "associated_red_flags": [],
+                "evidence_text": "slurred speech",
+                "clarification_needed": True,
+                "clarification_reason": "timing unclear",
+                "possible_families": [],
+                "confidence": 0.8,
+            }
+        ]
+    }
+
+    observations, debug = symptom_extractor._parse_llm_observations_with_debug(raw, "right hand numb")
+
+    assert observations == []
+    assert debug["rejection_reasons"] == {"evidence_not_in_raw_text": 1}
+
+
+def test_live_hallucinated_observation_is_still_counted() -> None:
+    case = {
+        "id": "hallucinated_family",
+        "input": "right hand numb",
+        "case_type": "missing_info",
+        "expected_families": ["sensory"],
+        "acceptable_families": ["sensory"],
+        "expected_clarification_needed": True,
+    }
+    raw = {
+        "observations": [
+            {
+                "raw_text": "right hand numb",
+                "symptom_family": "speech_language",
+                "signal_strength": "possible",
+                "onset": "unknown",
+                "duration_text": "",
+                "duration_category": "unknown",
+                "laterality": "one_side",
+                "progression": "unknown",
+                "severity_qualifier": "unknown",
+                "transient_or_resolved": False,
+                "associated_red_flags": [],
+                "evidence_text": "right hand numb",
+                "clarification_needed": True,
+                "clarification_reason": "timing unclear",
+                "possible_families": [],
+                "confidence": 0.8,
+            }
+        ]
+    }
+
+    result = obs_eval._llm_case(case, raw)
+    metrics = obs_eval.evaluate_results([case], [result])
+
+    assert metrics["hallucinated_observation_count"] == 1
+    assert metrics["failed_case_rows"][0]["failures"] == [
+        "expected_family",
+        "acceptable_family",
+        "hallucinated_observation",
+    ]
+
+
 def test_model_comparison_marks_zero_accepted_observations_not_meaningful(tmp_path) -> None:
     def fake_live(_case: dict, _provider: str, _model: str | None) -> dict:
         return {"observations": []}
@@ -442,6 +652,53 @@ def test_live_action_and_concern_fields_are_ignored(tmp_path) -> None:
     assert sections["live_llm"]["unsafe_action_override_count"] == 1
     assert sections["live_llm"]["not_action_level_violation_count"] == 0
     assert sections["live_llm"]["case_rows"][0]["action_level"] != "emergency_now"
+
+
+def test_llm_action_fields_cannot_downclass_clear_emergency_observations() -> None:
+    case = {
+        "id": "llm_downclass_emergency",
+        "input": "sudden right arm weakness",
+        "case_type": "clear_red_flag",
+        "expected_families": ["weakness"],
+        "acceptable_families": ["weakness"],
+        "expected_onset": "sudden",
+        "expected_laterality": "one_side",
+        "expected_clarification_needed": False,
+        "expected_action_level": "emergency_now",
+    }
+    raw = {
+        "action_level": "monitor",
+        "concern_level": "low",
+        "diagnosis": "not urgent",
+        "observations": [
+            {
+                "raw_text": case["input"],
+                "symptom_family": "weakness",
+                "signal_strength": "true_red_flag",
+                "onset": "sudden",
+                "duration_text": "",
+                "duration_category": "unknown",
+                "laterality": "one_side",
+                "progression": "unknown",
+                "severity_qualifier": "unknown",
+                "transient_or_resolved": False,
+                "associated_red_flags": [],
+                "evidence_text": "sudden right arm weakness",
+                "clarification_needed": False,
+                "clarification_reason": "",
+                "possible_families": [],
+                "confidence": 0.92,
+            }
+        ],
+    }
+
+    result = obs_eval._llm_case(case, raw)
+    metrics = obs_eval.evaluate_results([case], [result])
+
+    assert result["pipeline"]["action_level"] == "emergency_now"
+    assert metrics["unsafe_action_override_count"] == 1
+    assert metrics["emergency_preservation_rate"] == 1.0
+    assert metrics["failed_case_rows"] == []
 
 
 def test_deterministic_fallback_still_runs_when_live_extraction_fails(tmp_path) -> None:

@@ -7,9 +7,19 @@ from __future__ import annotations
 
 import json
 from collections import Counter
+from typing import get_args
 
 from core.models import ExtractedSymptoms, Laterality, Onset, Progression, RedFlags
-from core.observations import NormalizedObservation
+from core.observations import (
+    DurationCategory,
+    NormalizedObservation,
+    ObservationLaterality,
+    ObservationOnset,
+    ObservationProgression,
+    SeverityQualifier,
+    SignalStrength,
+    SymptomFamily,
+)
 from core.config_loader import load_prompt_template
 from core.llm import call_structured
 from core.provider_settings import get_provider
@@ -45,6 +55,59 @@ OBSERVATION_SCHEMA = """
   ]
 }
 """
+
+OBSERVATION_ENUM_VALUES = {
+    "symptom_family": set(get_args(SymptomFamily)),
+    "signal_strength": set(get_args(SignalStrength)),
+    "onset": set(get_args(ObservationOnset)),
+    "duration_category": set(get_args(DurationCategory)),
+    "laterality": set(get_args(ObservationLaterality)),
+    "progression": set(get_args(ObservationProgression)),
+    "severity_qualifier": set(get_args(SeverityQualifier)),
+}
+OBSERVATION_NULL_DEFAULTS = {
+    "duration_text": "",
+    "transient_or_resolved": False,
+    "associated_red_flags": [],
+    "clarification_needed": False,
+    "clarification_reason": "",
+    "possible_families": [],
+}
+OBSERVATION_ENUM_ALIASES = {
+    "symptom_family": {
+        "unknown": "other",
+        "unclear": "other",
+        "unspecified": "other",
+    },
+    "duration_category": {
+        "seconds": "transient_resolved",
+        "resolved": "transient_resolved",
+        "transient": "transient_resolved",
+        "minutes": "minutes_hours",
+        "hours": "minutes_hours",
+        "weeks": "weeks_months",
+        "months": "weeks_months",
+        "several_months": "weeks_months",
+        "years": "years_chronic",
+    },
+    "laterality": {
+        "left": "one_side",
+        "right": "one_side",
+        "left_side": "one_side",
+        "right_side": "one_side",
+        "unilateral": "one_side",
+        "bilateral": "both_sides",
+    },
+    "progression": {
+        "progressive": "worsening",
+        "worse": "worsening",
+        "recurrent": "recurring",
+    },
+    "signal_strength": {
+        "uncertain": "possible",
+        "low": "possible",
+    },
+}
 
 
 def extract_symptoms(user_input: str) -> ExtractedSymptoms:
@@ -114,13 +177,13 @@ def _parse_llm_observations_with_debug(
         if not isinstance(item, dict):
             rejection_reasons["item_not_dict"] += 1
             continue
-        data = dict(item)
-        data["raw_text"] = data.get("raw_text") or user_input
-        data["source"] = "llm"
+        data = _normalize_llm_observation_data(item, user_input)
         try:
             observation = NormalizedObservation(**data)
-        except Exception:
+        except Exception as exc:
             rejection_reasons["pydantic_validation_error"] += 1
+            for reason in _pydantic_rejection_reasons(exc):
+                rejection_reasons[reason] += 1
             continue
         rejection_reason = _llm_observation_rejection_reason(observation)
         if rejection_reason is not None:
@@ -142,6 +205,63 @@ def _llm_parse_debug(
         "accepted_observation_count": accepted_observation_count,
         "rejection_reasons": dict(sorted(rejection_reasons.items())),
     }
+
+
+def _normalize_llm_observation_data(item: dict, user_input: str) -> dict:
+    """Normalize recoverable LLM shape issues without inferring medical meaning."""
+    data = dict(item)
+    data["raw_text"] = data.get("raw_text") or user_input
+    data["source"] = "llm"
+
+    for field, default in OBSERVATION_NULL_DEFAULTS.items():
+        if data.get(field) is None:
+            data[field] = list(default) if isinstance(default, list) else default
+
+    if isinstance(data.get("confidence"), str):
+        confidence = data["confidence"].strip()
+        try:
+            data["confidence"] = float(confidence)
+        except ValueError:
+            pass
+
+    for field in ("associated_red_flags", "possible_families"):
+        if data.get(field) is None:
+            data[field] = []
+
+    for field in OBSERVATION_ENUM_VALUES:
+        if field in data:
+            data[field] = _normalize_enum_value(field, data[field])
+
+    if isinstance(data.get("possible_families"), list):
+        data["possible_families"] = [
+            _normalize_enum_value("symptom_family", value)
+            for value in data["possible_families"]
+        ]
+
+    return data
+
+
+def _normalize_enum_value(field: str, value: object) -> object:
+    if not isinstance(value, str):
+        return value
+    normalized = value.strip().lower().replace(" ", "_").replace("-", "_")
+    if normalized in OBSERVATION_ENUM_VALUES[field]:
+        return normalized
+    return OBSERVATION_ENUM_ALIASES.get(field, {}).get(normalized, value)
+
+
+def _pydantic_rejection_reasons(exc: Exception) -> list[str]:
+    errors = getattr(exc, "errors", None)
+    if not callable(errors):
+        return []
+    reasons: list[str] = []
+    for error in errors():
+        error_type = str(error.get("type", ""))
+        if error_type == "literal_error":
+            reasons.append("invalid_enum_value")
+        elif error_type.endswith("_type") or error_type in {"list_type", "bool_type", "string_type"}:
+            reasons.append("unsupported_field_type")
+    return sorted(set(reasons))
 
 
 def _llm_observation_rejection_reason(observation: NormalizedObservation) -> str | None:

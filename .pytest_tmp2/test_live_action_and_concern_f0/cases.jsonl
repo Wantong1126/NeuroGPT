@@ -1,0 +1,1 @@
+{"id": "live_unsafe_fields", "input": "今天有点累，没什么别的症状", "case_type": "mild_transient", "expected_families": ["fatigue"], "acceptable_families": ["fatigue"], "expected_clarification_needed": false, "expected_not_action_levels": ["emergency_now"]}

@@ -163,28 +163,28 @@ Safety verdict: FAIL
 
 ## live_llm
 
-- provider: heuristic
-- model: n/a
-- timestamp: 2026-05-25T08:57:58Z
-- live_requested: False
+- provider: openai_compatible
+- model: candidate-model
+- timestamp: 2026-05-25T08:57:00Z
+- live_requested: True
 - live_ran: False
-- live_cases: 32
-- skipped_reason: Live eval not requested. Re-run with --live to evaluate a configured LLM provider.
+- live_cases: 1
+- skipped_reason: NEUROGPT_LLM_API_KEY is not set. Configure a key before running live eval.
 - raw_debug_path: n/a
 - safety_verdict: SKIPPED
 
-Skipped: Live eval not requested. Re-run with --live to evaluate a configured LLM provider.
+Skipped: NEUROGPT_LLM_API_KEY is not set. Configure a key before running live eval.
 
 ## live_merged
 
-- provider: heuristic
-- model: n/a
-- timestamp: 2026-05-25T08:57:58Z
-- live_requested: False
+- provider: openai_compatible
+- model: candidate-model
+- timestamp: 2026-05-25T08:57:00Z
+- live_requested: True
 - live_ran: False
-- live_cases: 32
-- skipped_reason: Live eval not requested. Re-run with --live to evaluate a configured LLM provider.
+- live_cases: 1
+- skipped_reason: NEUROGPT_LLM_API_KEY is not set. Configure a key before running live eval.
 - raw_debug_path: n/a
 - safety_verdict: SKIPPED
 
-Skipped: Live eval not requested. Re-run with --live to evaluate a configured LLM provider.
+Skipped: NEUROGPT_LLM_API_KEY is not set. Configure a key before running live eval.

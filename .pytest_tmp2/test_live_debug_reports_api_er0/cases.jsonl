@@ -1,0 +1,2 @@
+{"id": "api_error_case", "input": "right hand numb", "case_type": "missing_info", "expected_families": ["sensory"], "acceptable_families": ["sensory"], "expected_clarification_needed": true}
+{"id": "missing_key_case", "input": "speech unclear", "case_type": "missing_info", "expected_families": ["speech_language"], "acceptable_families": ["speech_language"], "expected_clarification_needed": true}
