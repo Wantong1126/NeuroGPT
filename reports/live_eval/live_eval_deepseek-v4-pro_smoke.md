@@ -165,10 +165,10 @@ Safety verdict: FAIL
 
 - provider: openai_compatible
 - model: deepseek-v4-pro
-- timestamp: 2026-05-25T09:44:08Z
+- timestamp: 2026-05-25T09:42:57Z
 - live_requested: True
 - live_ran: False
-- live_cases: 32
+- live_cases: 3
 - skipped_reason: NEUROGPT_LLM_API_KEY is not set. Configure a key before running live eval.
 - raw_debug_path: n/a
 - safety_verdict: SKIPPED
@@ -179,10 +179,10 @@ Skipped: NEUROGPT_LLM_API_KEY is not set. Configure a key before running live ev
 
 - provider: openai_compatible
 - model: deepseek-v4-pro
-- timestamp: 2026-05-25T09:44:08Z
+- timestamp: 2026-05-25T09:42:57Z
 - live_requested: True
 - live_ran: False
-- live_cases: 32
+- live_cases: 3
 - skipped_reason: NEUROGPT_LLM_API_KEY is not set. Configure a key before running live eval.
 - raw_debug_path: n/a
 - safety_verdict: SKIPPED
