@@ -57,6 +57,19 @@ def _env(name: str, default: str = "") -> str:
     return os.environ.get(name, default)
 
 
+def get_runtime_config(
+    *,
+    model: Optional[str] = None,
+    base_url: Optional[str] = None,
+) -> dict:
+    """Return non-secret LLM runtime config for diagnostics and tests."""
+    return {
+        "base_url": _env("NEUROGPT_LLM_BASE_URL", base_url or BASE_URL),
+        "model": _env("NEUROGPT_LLM_MODEL", model or MODEL),
+        "api_key_configured": bool(_env("NEUROGPT_LLM_API_KEY", API_KEY)),
+    }
+
+
 def _is_transient_status_error(exc: httpx.HTTPStatusError) -> bool:
     return exc.response.status_code in TRANSIENT_STATUS_CODES
 
@@ -83,6 +96,7 @@ def call(
     user_message: str,
     system_prompt: str = SYSTEM_PROMPT_DEFAULT,
     model: Optional[str] = None,
+    base_url: Optional[str] = None,
     json_mode: bool = False,
     temperature: float = 0.3,
 ) -> str:
@@ -93,6 +107,7 @@ def call(
         user_message: The user prompt.
         system_prompt: System-level instructions.
         model: Override the default model.
+        base_url: Override the default OpenAI-compatible base URL.
         json_mode: If True, request structured JSON output.
         temperature: Lower = more deterministic (0.1-0.3 recommended for medical).
     """
@@ -100,8 +115,8 @@ def call(
     LAST_CALL_ATTEMPTS = 0
 
     api_key = _env("NEUROGPT_LLM_API_KEY", API_KEY)
-    base_url = _env("NEUROGPT_LLM_BASE_URL", BASE_URL)
-    resolved_model = model or _env("NEUROGPT_LLM_MODEL", MODEL)
+    resolved_base_url = _env("NEUROGPT_LLM_BASE_URL", base_url or BASE_URL)
+    resolved_model = _env("NEUROGPT_LLM_MODEL", model or MODEL)
 
     if not api_key:
         raise RuntimeError(
@@ -129,7 +144,7 @@ def call(
             LAST_CALL_ATTEMPTS = attempt
             try:
                 response = client.post(
-                    f"{base_url.rstrip('/')}/chat/completions",
+                    f"{resolved_base_url.rstrip('/')}/chat/completions",
                     headers=headers,
                     json=payload,
                 )
@@ -152,6 +167,7 @@ def call_structured(
     system_prompt: str,
     schema: str,
     model: Optional[str] = None,
+    base_url: Optional[str] = None,
 ) -> dict:
     """Call LLM and parse JSON response matching the provided schema description."""
     full_system = (
@@ -159,7 +175,13 @@ def call_structured(
         + f"\n\nIMPORTANT: Your response MUST be valid JSON conforming to this schema:\n{schema}"
         + "\nReturn ONLY the JSON object, no additional text."
     )
-    raw = call(user_message, system_prompt=full_system, model=model, json_mode=True)
+    raw = call(
+        user_message,
+        system_prompt=full_system,
+        model=model,
+        base_url=base_url,
+        json_mode=True,
+    )
     # Strip markdown code fences if present
     raw = raw.strip()
     if raw.startswith("```"):

@@ -30,7 +30,7 @@ from core.observations import (
 )
 from core.config_loader import load_prompt_template
 from core.llm import call_structured
-from core.provider_settings import get_provider
+from core.provider_settings import get_provider, get_provider_base_url, get_provider_model
 from modules.symptom_normalizer import normalize_observations
 
 SYSTEM_PROMPT = (
@@ -164,7 +164,13 @@ def _extract_llm_observations(
     user_prompt = template.format(user_input=user_input)
 
     try:
-        raw = call_structured(user_prompt, SYSTEM_PROMPT, OBSERVATION_SCHEMA)
+        raw = call_structured(
+            user_prompt,
+            SYSTEM_PROMPT,
+            OBSERVATION_SCHEMA,
+            model=get_provider_model("symptom_extractor") or None,
+            base_url=get_provider_base_url("symptom_extractor") or None,
+        )
     except Exception as exc:
         return {}, [], type(exc).__name__, {}
 

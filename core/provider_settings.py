@@ -7,7 +7,11 @@ from copy import deepcopy
 from core.config_loader import load_yaml_config
 
 DEFAULT_PROVIDER_CONFIG = {
-    "symptom_extractor": {"provider": "heuristic"},
+    "symptom_extractor": {
+        "provider": "heuristic",
+        "base_url": "",
+        "model": "",
+    },
     "summary_generator": {"provider": "heuristic"},
 }
 
@@ -36,3 +40,18 @@ def load_provider_config() -> dict:
 def get_provider(module_name: str) -> str:
     config = load_provider_config()
     return config.get(module_name, {}).get("provider", "heuristic")
+
+
+def get_provider_settings(module_name: str) -> dict:
+    config = load_provider_config()
+    return config.get(module_name, {}).copy()
+
+
+def get_provider_base_url(module_name: str) -> str:
+    settings = get_provider_settings(module_name)
+    return str(settings.get("base_url") or "")
+
+
+def get_provider_model(module_name: str) -> str:
+    settings = get_provider_settings(module_name)
+    return str(settings.get("model") or "")

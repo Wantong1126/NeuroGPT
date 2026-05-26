@@ -133,9 +133,39 @@ It compares the live LLM observation section across candidates:
 
 ## Configuration
 
-The default product provider remains configured in `configs/providers.yaml`. Live eval can use CLI overrides for provider/model, or `NEUROGPT_LLM_MODEL` for the model name. Use a model that supports reliable JSON/structured output.
+The observation extractor provider is configured in `configs/providers.yaml`. The configured observation-extractor candidate is:
+
+```yaml
+symptom_extractor:
+  provider: openai_compatible
+  base_url: https://api.deepseek.com/v1
+  model: deepseek-v4-pro
+```
+
+DeepSeek is used only for `NormalizedObservation` extraction. It must not decide action level, concern level, diagnosis, care setting, or medical advice. Deterministic fallback and rule-controlled action tiers remain mandatory.
+
+For local development, set the API key in your shell or in a local `.env` file that is ignored by git:
+
+```powershell
+$env:NEUROGPT_LLM_API_KEY = "<DEEPSEEK_API_KEY>"
+$env:NEUROGPT_LLM_BASE_URL = "https://api.deepseek.com/v1"
+$env:NEUROGPT_LLM_MODEL = "deepseek-v4-pro"
+```
+
+`NEUROGPT_LLM_API_KEY` must never be committed. `.env.example` contains placeholders only.
+
+Live eval can use CLI overrides for provider/model, or `NEUROGPT_LLM_MODEL` for the model name. Use a model that supports reliable JSON/structured output.
 
 Do not make a live model the production default based on one run. Compare candidates using the same eval cases and inspect failed cases manually.
+
+DeepSeek eval commands:
+
+```powershell
+python scripts/eval_observation_extraction.py --live --provider openai_compatible --model deepseek-v4-pro --max-cases 1
+python scripts/eval_observation_extraction.py --live --provider openai_compatible --model deepseek-v4-pro --max-cases 8
+python scripts/eval_observation_extraction.py --live --provider openai_compatible --model deepseek-v4-pro --case-type ambiguous_lay_description
+python scripts/eval_observation_extraction.py --live --provider openai_compatible --model deepseek-v4-pro --report reports/live_eval/live_eval_deepseek-v4-pro_full.md
+```
 
 ## Metrics That Matter
 

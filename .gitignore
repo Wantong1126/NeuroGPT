@@ -14,3 +14,7 @@ htmlcov/
 .env
 *.env
 .codex/.env
+local_secrets.*
+secrets.*
+reports/live_eval_debug/*raw_debug*.jsonl
+reports/live_eval/*raw_debug*.jsonl
