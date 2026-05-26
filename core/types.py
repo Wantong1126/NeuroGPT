@@ -278,9 +278,12 @@ class ActionStep(BaseModel):
 class ElderResponse(BaseModel):
     """Step 4+5 output — what to tell the elder user."""
     empathy_statement: str = ""
+    key_signs_summary: str = ""
     what_this_means: str = ""
     urgency_statement: str = ""
+    clarification_question: Optional[str] = None
     action_steps: list[ActionStep] = Field(default_factory=list)
+    caregiver_summary: str = ""
     disclaimer: str = ""
     monitor_points: list[str] = Field(default_factory=list)
 

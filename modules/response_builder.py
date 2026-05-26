@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from core.config_loader import load_yaml_config
+from core.observations import NormalizedObservation
 from core.types import ActionStep, CaseState, ElderResponse
 
 DEFAULT_ACTIONS = {
@@ -37,6 +38,44 @@ DEFAULT_ACTIONS = {
     },
 }
 
+FAMILY_LABELS = {
+    "weakness": "无力",
+    "facial_asymmetry": "面部歪斜",
+    "sensory": "麻木或感觉异常",
+    "speech_language": "说话或表达困难",
+    "confusion_awareness": "意识或认知改变",
+    "memory_cognitive": "记忆或认知问题",
+    "gait_balance": "走路或平衡问题",
+    "headache": "头痛",
+    "vision": "视力变化",
+    "seizure_episode": "抽搐",
+    "loss_of_consciousness": "意识丧失",
+    "fall_head_injury": "跌倒或头部受伤",
+    "fatigue": "疲乏",
+    "other": "还不明确的不适",
+}
+
+LATERALITY_LABELS = {
+    "one_side": "偏一侧",
+    "both_sides": "两侧",
+    "central": "中间部位",
+}
+
+ONSET_LABELS = {
+    "sudden": "突然出现",
+    "gradual": "逐渐出现",
+    "chronic": "持续较久",
+}
+
+ACTION_LABELS = {
+    "emergency_now": "立即急诊/急救",
+    "same_day_review": "今天内就医",
+    "prompt_clinical_review": "尽快临床评估",
+    "prompt_follow_up": "尽快预约医生",
+    "monitor": "先观察并留意变化",
+    "educate": "先了解和观察",
+}
+
 
 
 def _load_action_tiers() -> dict:
@@ -50,6 +89,64 @@ def _load_action_tiers() -> dict:
 
     return config if isinstance(config, dict) else DEFAULT_ACTIONS
 
+
+def _value(value: object) -> str:
+    return str(getattr(value, "value", value) or "")
+
+
+def _observation_phrase(observation: NormalizedObservation) -> str:
+    family = FAMILY_LABELS.get(observation.symptom_family, "不适")
+    parts: list[str] = []
+
+    laterality = LATERALITY_LABELS.get(_value(observation.laterality))
+    onset = ONSET_LABELS.get(_value(observation.onset))
+    if laterality:
+        parts.append(laterality)
+    if observation.signal_strength == "possible":
+        parts.append(f"可能有{family}")
+    else:
+        parts.append(family)
+    if onset:
+        parts.append(onset)
+
+    return "".join(parts)
+
+
+def build_key_signs_summary(state: CaseState) -> str:
+    """Summarize structured observations in elder-friendly wording."""
+    observations = [
+        observation
+        for observation in state.symptoms_detected.observations
+        if observation.symptom_family != "other" or observation.clarification_needed
+    ]
+    phrases: list[str] = []
+    for observation in observations:
+        phrase = _observation_phrase(observation)
+        if phrase and phrase not in phrases:
+            phrases.append(phrase)
+        if len(phrases) >= 4:
+            break
+
+    if not phrases:
+        return "【我目前抓到的重点】目前还没有抓到明确的神经系统红旗信号。"
+    return f"【我目前抓到的重点】{'、'.join(phrases)}。"
+
+
+def build_caregiver_doctor_summary(state: CaseState) -> str:
+    signs = build_key_signs_summary(state).replace("【我目前抓到的重点】", "").strip()
+    action = ACTION_LABELS.get(state.action_level.value, state.action_level.value)
+    timing = ""
+    if _value(state.symptoms_detected.onset) == "unknown":
+        timing = "起病时间未确认，"
+    return f"给家属/医生：{signs}{timing}系统建议：{action}。"
+
+
+def _first_question(question: str) -> str:
+    for marker in ("？", "?"):
+        index = question.find(marker)
+        if index >= 0:
+            return question[: index + 1]
+    return question
 
 
 def _build_empathy(state: CaseState) -> str:
@@ -99,6 +196,17 @@ def _build_meaning(state: CaseState) -> str:
     return "【为什么还不能下结论】目前信息不足，不能安全地直接判断为没事。"
 
 
+def build_clarification_response(state: CaseState, question: str) -> ElderResponse:
+    """Build a single-question response without changing question selection."""
+    return ElderResponse(
+        empathy_statement="【我先确认一件关键事】现在还差一个会影响判断的重要信息。",
+        key_signs_summary=build_key_signs_summary(state),
+        what_this_means="【为什么要问】这个问题能帮助判断是否需要更快就医；在回答前，我不会把它说成诊断。",
+        clarification_question=_first_question(question),
+        caregiver_summary=build_caregiver_doctor_summary(state),
+    )
+
+
 
 def build_response(state: CaseState) -> ElderResponse:
     """Build an elder-facing response from populated CaseState."""
@@ -119,14 +227,18 @@ def build_response(state: CaseState) -> ElderResponse:
     ]
 
     empathy = _build_empathy(state)
+    key_signs_summary = build_key_signs_summary(state)
     what_this_means = _build_meaning(state)
     disclaimer = disclaimer_cfg.get("disclaimers", {}).get("general", {}).get("short", "")
+    caregiver_summary = build_caregiver_doctor_summary(state)
 
     return ElderResponse(
         empathy_statement=empathy,
+        key_signs_summary=key_signs_summary,
         what_this_means=what_this_means,
         urgency_statement=tier_data.get("urgency", DEFAULT_ACTIONS["monitor"]["urgency"]),
         action_steps=steps,
+        caregiver_summary=caregiver_summary,
         disclaimer=disclaimer,
         monitor_points=tier_data.get("monitor_points", []),
     )

@@ -7,7 +7,7 @@ from modules.action_mapper import map_to_action
 from modules.concern_estimator import estimate_concern
 from modules.hesitation_detector import detect_hesitation
 from modules.question_manager import decide_question
-from modules.response_builder import build_response
+from modules.response_builder import build_clarification_response, build_response
 from modules.summary_generator import generate_summary
 from pipeline.multi_turn import merge_turn
 from pipeline.state import new_case
@@ -24,8 +24,40 @@ def _format_steps(steps: list[ActionStep]) -> str:
 
 
 
-def _build_assistant_text(empathy: str, rationale: str, urgency: str, steps: list[ActionStep]) -> str:
-    parts = [part.strip() for part in (empathy, rationale, urgency, _format_steps(steps)) if part and part.strip()]
+def _format_clarification(question: str | None) -> str:
+    if not question:
+        return ""
+    return f"【我只需要先确认这一点】\n{question}"
+
+
+def _format_caregiver_summary(summary: str) -> str:
+    if not summary:
+        return ""
+    return f"【给家属/医生的话】\n{summary}"
+
+
+def _build_assistant_text(
+    empathy: str,
+    key_signs: str,
+    rationale: str,
+    urgency: str,
+    steps: list[ActionStep],
+    clarification_question: str | None = None,
+    caregiver_summary: str = "",
+) -> str:
+    parts = [
+        part.strip()
+        for part in (
+            empathy,
+            key_signs,
+            rationale,
+            urgency,
+            _format_clarification(clarification_question),
+            _format_steps(steps),
+            _format_caregiver_summary(caregiver_summary),
+        )
+        if part and part.strip()
+    ]
     return "\n\n".join(parts)
 
 
@@ -42,13 +74,25 @@ def run_pipeline(session_id: str, user_input: str, state: CaseState | None = Non
     if question:
         state.needs_follow_up_question = True
         state.follow_up_question = question
-        state.add_assistant_message(question)
+        elder_response = build_clarification_response(state, question)
+        assistant_text = _build_assistant_text(
+            elder_response.empathy_statement,
+            elder_response.key_signs_summary,
+            elder_response.what_this_means,
+            elder_response.urgency_statement,
+            elder_response.action_steps,
+            elder_response.clarification_question,
+            elder_response.caregiver_summary,
+        )
+        state.user_message = assistant_text
+        state.caregiver_summary = elder_response.caregiver_summary
+        state.add_assistant_message(assistant_text)
         output = PipelineOutput(
             needs_follow_up_question=True,
             follow_up_question=question,
             concern_level=state.concern_level.value,
             action_level=state.action_level.value,
-            user_message=question,
+            user_message=assistant_text,
             caregiver_summary=state.caregiver_summary,
             disclaimer=None,
         )
@@ -69,9 +113,12 @@ def run_pipeline(session_id: str, user_input: str, state: CaseState | None = Non
     elder_response = build_response(state)
     assistant_text = _build_assistant_text(
         elder_response.empathy_statement,
+        elder_response.key_signs_summary,
         elder_response.what_this_means,
         elder_response.urgency_statement,
         elder_response.action_steps,
+        elder_response.clarification_question,
+        elder_response.caregiver_summary,
     )
     state.user_message = assistant_text
     state.add_assistant_message(assistant_text)
