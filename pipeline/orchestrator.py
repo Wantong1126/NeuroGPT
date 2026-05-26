@@ -36,10 +36,19 @@ def _format_caregiver_summary(summary: str) -> str:
     return f"【给家属/医生的话】\n{summary}"
 
 
+def _format_guidance(snippets: list[str]) -> str:
+    if not snippets:
+        return ""
+    lines = ["【专业依据提示】"]
+    lines.extend(snippets[:2])
+    return "\n".join(lines)
+
+
 def _build_assistant_text(
     empathy: str,
     key_signs: str,
     rationale: str,
+    guidance_snippets: list[str],
     urgency: str,
     steps: list[ActionStep],
     clarification_question: str | None = None,
@@ -51,6 +60,7 @@ def _build_assistant_text(
             empathy,
             key_signs,
             rationale,
+            _format_guidance(guidance_snippets),
             urgency,
             _format_clarification(clarification_question),
             _format_steps(steps),
@@ -79,6 +89,7 @@ def run_pipeline(session_id: str, user_input: str, state: CaseState | None = Non
             elder_response.empathy_statement,
             elder_response.key_signs_summary,
             elder_response.what_this_means,
+            elder_response.guidance_snippets,
             elder_response.urgency_statement,
             elder_response.action_steps,
             elder_response.clarification_question,
@@ -94,6 +105,7 @@ def run_pipeline(session_id: str, user_input: str, state: CaseState | None = Non
             action_level=state.action_level.value,
             user_message=assistant_text,
             caregiver_summary=state.caregiver_summary,
+            guidance_snippets=elder_response.guidance_snippets,
             disclaimer=None,
         )
         return state, output
@@ -115,6 +127,7 @@ def run_pipeline(session_id: str, user_input: str, state: CaseState | None = Non
         elder_response.empathy_statement,
         elder_response.key_signs_summary,
         elder_response.what_this_means,
+        elder_response.guidance_snippets,
         elder_response.urgency_statement,
         elder_response.action_steps,
         elder_response.clarification_question,
@@ -133,6 +146,7 @@ def run_pipeline(session_id: str, user_input: str, state: CaseState | None = Non
         action_level=state.action_level.value,
         user_message=assistant_text,
         caregiver_summary=caregiver_summary.summary_paragraph,
+        guidance_snippets=elder_response.guidance_snippets,
         disclaimer=elder_response.disclaimer,
     )
     return state, output

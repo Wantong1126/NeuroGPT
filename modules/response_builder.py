@@ -5,6 +5,7 @@ from __future__ import annotations
 from core.config_loader import load_yaml_config
 from core.observations import NormalizedObservation
 from core.types import ActionStep, CaseState, ElderResponse
+from modules.medical_guidance import guidance_snippets_for_response
 
 DEFAULT_ACTIONS = {
     "emergency_now": {
@@ -229,6 +230,7 @@ def build_response(state: CaseState) -> ElderResponse:
     empathy = _build_empathy(state)
     key_signs_summary = build_key_signs_summary(state)
     what_this_means = _build_meaning(state)
+    guidance_snippets = guidance_snippets_for_response(state)
     disclaimer = disclaimer_cfg.get("disclaimers", {}).get("general", {}).get("short", "")
     caregiver_summary = build_caregiver_doctor_summary(state)
 
@@ -236,6 +238,7 @@ def build_response(state: CaseState) -> ElderResponse:
         empathy_statement=empathy,
         key_signs_summary=key_signs_summary,
         what_this_means=what_this_means,
+        guidance_snippets=guidance_snippets,
         urgency_statement=tier_data.get("urgency", DEFAULT_ACTIONS["monitor"]["urgency"]),
         action_steps=steps,
         caregiver_summary=caregiver_summary,

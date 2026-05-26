@@ -1,0 +1,133 @@
+guidance_cards:
+  stroke_red_flags:
+    id: "stroke_red_flags"
+    title: "Stroke-like neurological warning signs"
+    source_names:
+      - "CDC Signs and Symptoms of Stroke"
+      - "American Stroke Association Stroke Symptoms"
+    source_urls:
+      - "https://www.cdc.gov/stroke/signs-symptoms/index.html"
+      - "https://www.stroke.org/en/about-stroke/stroke-symptoms"
+    applicable_action_levels: ["emergency_now"]
+    trigger_red_flags:
+      - "weakness_one_side"
+      - "facial_droop"
+      - "slurred_speech"
+      - "vision_loss"
+      - "gait_imbalance"
+      - "focal_numbness"
+    trigger_observation_families:
+      - "weakness"
+      - "facial_asymmetry"
+      - "speech_language"
+      - "vision"
+      - "gait_balance"
+      - "sensory"
+    snippet_elder: "这些突然出现的神经系统变化属于高风险警讯。现在重点不是判断具体原因，而是尽快让急诊/急救系统评估。"
+    snippet_caregiver: "给家属/医生：出现疑似卒中样警讯；请记录最早开始时间，并尽快急诊/急救。"
+    safety_notes:
+      - "Explain stroke-like warning signs without diagnosing stroke."
+      - "Emergency action remains determined by risk rules."
+    forbidden_claims:
+      - "你中风了"
+      - "确诊卒中"
+      - "一定是脑梗"
+      - "一定是脑出血"
+  sudden_confusion:
+    id: "sudden_confusion"
+    title: "Sudden confusion needs prompt assessment"
+    source_names:
+      - "NHS Sudden confusion/delirium"
+      - "NICE Delirium CG103"
+    source_urls:
+      - "https://www.nhs.uk/symptoms/confusion/"
+      - "https://www.nice.org.uk/guidance/cg103/chapter/Recommendations"
+    applicable_action_levels: ["emergency_now", "same_day_review"]
+    trigger_red_flags:
+      - "acute_confusion"
+    trigger_observation_families:
+      - "confusion_awareness"
+    snippet_elder: "突然变糊涂、意识或行为和平时明显不同，可能有很多原因，需要尽快让医生评估，而不是先按普通健忘处理。"
+    snippet_caregiver: "给家属/医生：近期突然出现意识、认知或行为改变；请说明和平时相比的变化和开始时间。"
+    safety_notes:
+      - "Do not diagnose delirium."
+      - "Frame as sudden confusion needing assessment."
+    forbidden_claims:
+      - "确诊谵妄"
+      - "一定是谵妄"
+  severe_headache:
+    id: "severe_headache"
+    title: "Severe or sudden headache warning signs"
+    source_names:
+      - "Mayo Clinic Headache: when to see a doctor"
+    source_urls:
+      - "https://www.mayoclinic.org/symptoms/headache/basics/when-to-see-doctor/sym-20050800"
+    applicable_action_levels: ["emergency_now", "same_day_review"]
+    trigger_red_flags:
+      - "severe_headache"
+    trigger_observation_families:
+      - "headache"
+    snippet_elder: "突然、很重、和平时不一样的头痛，尤其伴随神经系统变化时，需要尽快排除严重原因。不要先自行硬扛。"
+    snippet_caregiver: "给家属/医生：出现突发或严重头痛；请记录开始时间、是否最严重、以及是否伴随呕吐、意识变化或肢体/说话/视力问题。"
+    safety_notes:
+      - "Do not diagnose bleeding, aneurysm, meningitis, or stroke."
+      - "Say serious causes need to be ruled out."
+    forbidden_claims:
+      - "一定是脑出血"
+      - "一定是动脉瘤"
+      - "确诊脑膜炎"
+  fall_head_injury:
+    id: "fall_head_injury"
+    title: "Head injury red flags"
+    source_names:
+      - "NICE Head injury NG232"
+    source_urls:
+      - "https://www.nice.org.uk/guidance/ng232/chapter/Recommendations"
+    applicable_action_levels: ["emergency_now", "same_day_review"]
+    trigger_red_flags:
+      - "head_injury"
+      - "loss_of_consciousness"
+      - "seizure"
+      - "new_falls"
+    trigger_observation_families:
+      - "fall_head_injury"
+      - "loss_of_consciousness"
+      - "seizure_episode"
+    snippet_elder: "跌倒或头部受伤后，如果有意识不清、昏倒、抽搐、持续头痛、呕吐或新的神经症状，需要尽快接受评估。"
+    snippet_caregiver: "给家属/医生：有跌倒/头部受伤并伴随红旗信号；请说明受伤时间、是否昏倒、是否呕吐/抽搐、以及是否使用抗凝或抗血小板药。"
+    safety_notes:
+      - "Do not diagnose concussion, bleeding, or fracture."
+      - "Frame as head injury red flags requiring assessment."
+    forbidden_claims:
+      - "确诊脑震荡"
+      - "一定是颅内出血"
+      - "一定是骨折"
+  suicidal_language:
+    id: "suicidal_language"
+    title: "Suicidal language or immediate safety concern"
+    source_names:
+      - "NIMH Warning Signs of Suicide"
+      - "NIMH Suicide Prevention"
+    source_urls:
+      - "https://www.nimh.nih.gov/health/publications/warning-signs-of-suicide"
+      - "https://www.nimh.nih.gov/health/topics/suicide-prevention"
+    applicable_action_levels: ["emergency_now", "same_day_review", "prompt_clinical_review", "monitor"]
+    trigger_red_flags: []
+    trigger_observation_families: []
+    trigger_phrases:
+      - "want to die"
+      - "kill myself"
+      - "end my life"
+      - "suicidal"
+      - "想死"
+      - "不想活"
+      - "自杀"
+      - "伤害自己"
+    snippet_elder: "如果现在有伤害自己的想法，先不要一个人待着。请马上联系身边可信的人，并联系当地心理危机热线或紧急服务。"
+    snippet_caregiver: "给家属/医生：出现自伤/自杀相关表达；请优先确认当下安全、是否有计划或工具，并联系当地心理危机热线或紧急服务。"
+    safety_notes:
+      - "Narrow phrase detector only; not a full mental-health classifier."
+      - "Use local crisis or emergency services wording, not country-specific hotline numbers."
+    forbidden_claims:
+      - "一定会自杀"
+      - "确诊抑郁"

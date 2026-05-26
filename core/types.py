@@ -280,6 +280,7 @@ class ElderResponse(BaseModel):
     empathy_statement: str = ""
     key_signs_summary: str = ""
     what_this_means: str = ""
+    guidance_snippets: list[str] = Field(default_factory=list)
     urgency_statement: str = ""
     clarification_question: Optional[str] = None
     action_steps: list[ActionStep] = Field(default_factory=list)
@@ -311,4 +312,5 @@ class PipelineOutput(BaseModel):
     action_level: str
     user_message: str
     caregiver_summary: Optional[str] = None
+    guidance_snippets: list[str] = Field(default_factory=list)
     disclaimer: Optional[str] = None
