@@ -9,7 +9,15 @@ import json
 from collections import Counter
 from typing import get_args
 
-from core.models import ExtractedSymptoms, Laterality, Onset, Progression, RedFlags
+from core.models import (
+    ExtractedSymptoms,
+    Laterality,
+    LLMObservationStatus,
+    ObservationModeUsed,
+    Onset,
+    Progression,
+    RedFlags,
+)
 from core.observations import (
     DurationCategory,
     NormalizedObservation,
@@ -115,18 +123,33 @@ def extract_symptoms(user_input: str) -> ExtractedSymptoms:
     deterministic_observations = normalize_observations(user_input)
     provider = get_provider("symptom_extractor")
     if provider != "openai_compatible":
-        return _from_observations(user_input, deterministic_observations)
+        return _from_observations(
+            user_input,
+            deterministic_observations,
+            deterministic_observation_count=len(deterministic_observations),
+            llm_observation_status=LLMObservationStatus.NOT_CONFIGURED,
+            observation_mode_used=ObservationModeUsed.DETERMINISTIC_ONLY,
+        )
 
-    llm_raw, llm_observations = _extract_llm_observations(user_input)
+    llm_raw, llm_observations, llm_error_type = _extract_llm_observations(user_input)
     merged_observations = merge_observations(deterministic_observations, llm_observations)
-    return _from_observations(user_input, merged_observations, llm_raw)
+    return _from_observations(
+        user_input,
+        merged_observations,
+        llm_raw,
+        deterministic_observation_count=len(deterministic_observations),
+        llm_observation_status=_llm_observation_status(llm_observations, llm_error_type),
+        llm_observation_error_type=llm_error_type,
+        llm_observation_count=len(llm_observations),
+        observation_mode_used=_observation_mode_used(llm_observations, llm_error_type),
+    )
 
 
 def _bool(value) -> bool:
     return bool(value) if value is not None else False
 
 
-def _extract_llm_observations(user_input: str) -> tuple[dict, list[NormalizedObservation]]:
+def _extract_llm_observations(user_input: str) -> tuple[dict, list[NormalizedObservation], str | None]:
     template = load_prompt_template("symptom_observation_extractor") or (
         "Extract normalized symptom observations from this user text. "
         "Return observations only. Do not include action_level, concern_level, diagnosis, "
@@ -136,10 +159,32 @@ def _extract_llm_observations(user_input: str) -> tuple[dict, list[NormalizedObs
 
     try:
         raw = call_structured(user_prompt, SYSTEM_PROMPT, OBSERVATION_SCHEMA)
-    except Exception:
-        return {}, []
+    except Exception as exc:
+        return {}, [], type(exc).__name__
 
-    return raw, _parse_llm_observations(raw, user_input)
+    return raw, _parse_llm_observations(raw, user_input), None
+
+
+def _llm_observation_status(
+    llm_observations: list[NormalizedObservation],
+    error_type: str | None,
+) -> LLMObservationStatus:
+    if error_type:
+        return LLMObservationStatus.FAILED
+    if llm_observations:
+        return LLMObservationStatus.SUCCESS
+    return LLMObservationStatus.PARTIAL
+
+
+def _observation_mode_used(
+    llm_observations: list[NormalizedObservation],
+    error_type: str | None,
+) -> ObservationModeUsed:
+    if llm_observations:
+        return ObservationModeUsed.LLM_AUGMENTED
+    if error_type:
+        return ObservationModeUsed.LLM_FAILED_DETERMINISTIC_AVAILABLE
+    return ObservationModeUsed.DETERMINISTIC_ONLY
 
 
 def _parse_llm_observations(raw: object, user_input: str) -> list[NormalizedObservation]:
@@ -647,6 +692,12 @@ def _from_observations(
     user_input: str,
     observations: list[NormalizedObservation],
     raw_debug: dict | None = None,
+    *,
+    deterministic_observation_count: int = 0,
+    llm_observation_status: LLMObservationStatus = LLMObservationStatus.NOT_CONFIGURED,
+    llm_observation_error_type: str | None = None,
+    llm_observation_count: int = 0,
+    observation_mode_used: ObservationModeUsed = ObservationModeUsed.DETERMINISTIC_ONLY,
 ) -> ExtractedSymptoms:
     """Build deterministic extraction output from structured observations."""
     onset = _aggregate_enum(observations, "onset", Onset.UNKNOWN)
@@ -675,4 +726,9 @@ def _from_observations(
         falls_present=_associated(observations, "fall"),
         gait_difficulty=_has_family(observations, "gait_balance"),
         llm_raw_json=_observation_audit(raw_debug or {}, observations),
+        llm_observation_status=llm_observation_status,
+        llm_observation_error_type=llm_observation_error_type,
+        llm_observation_count=llm_observation_count,
+        deterministic_observation_count=deterministic_observation_count,
+        observation_mode_used=observation_mode_used,
     )

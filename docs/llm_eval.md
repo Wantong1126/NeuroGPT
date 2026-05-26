@@ -16,6 +16,18 @@ raw user message
 
 Action level, concern level, diagnosis, care setting, and advice remain rule-controlled.
 
+## Runtime LLM Observation Metadata
+
+Normal runtime extraction records internal metadata on `ExtractedSymptoms` so the pipeline can tell whether LLM observation extraction was unavailable, attempted, contributed observations, or failed. These fields are metadata only and do not control action tier, concern level, questions, or user-facing response wording:
+
+- `llm_observation_status`: `not_configured`, `skipped`, `success`, `partial`, or `failed`
+- `llm_observation_error_type`: exception type when LLM extraction fails, otherwise empty
+- `llm_observation_count`: accepted LLM observations from the current extraction
+- `deterministic_observation_count`: deterministic observations produced before any LLM merge
+- `observation_mode_used`: `deterministic_only`, `llm_augmented`, or `llm_failed_deterministic_available`
+
+When the symptom extractor provider is not `openai_compatible`, runtime extraction records `not_configured` and `deterministic_only`. When a configured LLM returns accepted observations, runtime extraction records `success` and `llm_augmented`. If the LLM call fails, existing deterministic behavior is preserved and the failure is recorded for future fallback handling.
+
 ## Evaluation Modes
 
 Deterministic eval measures the rule-controlled observation normalizer and downstream question/action pipeline on every JSONL case. It must run without an API key and is the baseline that protects the deterministic fallback.

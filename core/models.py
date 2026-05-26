@@ -7,6 +7,7 @@ All canonical types are now defined in core/types.py.
 from core.types import (
     # Enums
     RiskLevel, Onset, Laterality, Progression, ConcernLevel, ActionLevel, ActionTier,
+    LLMObservationStatus, ObservationModeUsed,
     # Symptom extraction
     ExtractedSymptoms, RedFlags,
     # Risk & concern
@@ -20,6 +21,7 @@ from core.types import (
 __all__ = [
     "RiskLevel", "Onset", "Laterality", "Progression",
     "ConcernLevel", "ActionLevel", "ActionTier",
+    "LLMObservationStatus", "ObservationModeUsed",
     "ExtractedSymptoms", "RedFlags",
     "RiskAssessment", "RiskBasis", "ConcernAssessment",
     "CaseState", "ConversationMessage",

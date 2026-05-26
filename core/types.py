@@ -75,6 +75,20 @@ class Progression(str, Enum):
     UNKNOWN = "unknown"
 
 
+class LLMObservationStatus(str, Enum):
+    NOT_CONFIGURED = "not_configured"
+    SKIPPED = "skipped"
+    SUCCESS = "success"
+    PARTIAL = "partial"
+    FAILED = "failed"
+
+
+class ObservationModeUsed(str, Enum):
+    DETERMINISTIC_ONLY = "deterministic_only"
+    LLM_AUGMENTED = "llm_augmented"
+    LLM_FAILED_DETERMINISTIC_AVAILABLE = "llm_failed_deterministic_available"
+
+
 from core.observations import NormalizedObservation
 
 
@@ -134,6 +148,11 @@ class ExtractedSymptoms(BaseModel):
     fear_detected: bool = False
     delay_reason: str = ""
     llm_raw_json: str = ""
+    llm_observation_status: LLMObservationStatus = LLMObservationStatus.NOT_CONFIGURED
+    llm_observation_error_type: Optional[str] = None
+    llm_observation_count: int = 0
+    deterministic_observation_count: int = 0
+    observation_mode_used: ObservationModeUsed = ObservationModeUsed.DETERMINISTIC_ONLY
 
 
 # ─────────────────────────────────────────────

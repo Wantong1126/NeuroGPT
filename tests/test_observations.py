@@ -99,6 +99,76 @@ def test_extract_symptoms_deterministic_path_uses_observations(monkeypatch) -> N
     assert "observations" in symptoms.llm_raw_json
 
 
+def test_runtime_metadata_records_deterministic_only_mode(monkeypatch) -> None:
+    monkeypatch.setattr(symptom_extractor, "get_provider", lambda _module: "heuristic")
+
+    state, output = run_pipeline("metadata-deterministic", "right hand weak")
+    symptoms = state.symptoms_detected
+
+    assert symptoms.llm_observation_status == "not_configured"
+    assert symptoms.observation_mode_used == "deterministic_only"
+    assert symptoms.deterministic_observation_count == 1
+    assert symptoms.llm_observation_count == 0
+    assert symptoms.llm_observation_error_type is None
+    assert output.action_level != "emergency_now"
+
+
+def test_runtime_metadata_records_llm_augmented_mode(monkeypatch) -> None:
+    monkeypatch.setattr(symptom_extractor, "get_provider", lambda _module: "openai_compatible")
+    monkeypatch.setattr(
+        symptom_extractor,
+        "call_structured",
+        lambda *_args, **_kwargs: {
+            "observations": [
+                {
+                    "raw_text": "right hand feels wrapped",
+                    "symptom_family": "sensory",
+                    "signal_strength": "possible",
+                    "onset": "unknown",
+                    "duration_text": "",
+                    "duration_category": "unknown",
+                    "laterality": "one_side",
+                    "progression": "unknown",
+                    "severity_qualifier": "unknown",
+                    "transient_or_resolved": False,
+                    "associated_red_flags": [],
+                    "evidence_text": "right hand feels wrapped",
+                    "confidence": 0.9,
+                }
+            ]
+        },
+    )
+
+    state, output = run_pipeline("metadata-llm-success", "right hand feels wrapped")
+    symptoms = state.symptoms_detected
+
+    assert symptoms.llm_observation_status == "success"
+    assert symptoms.observation_mode_used == "llm_augmented"
+    assert symptoms.llm_observation_count == 1
+    assert symptoms.deterministic_observation_count == 1
+    assert any(obs.symptom_family == "sensory" and obs.source == "llm" for obs in symptoms.observations)
+    assert output.action_level != "emergency_now"
+
+
+def test_runtime_metadata_records_llm_failure_without_changing_action_tier(monkeypatch) -> None:
+    monkeypatch.setattr(symptom_extractor, "get_provider", lambda _module: "openai_compatible")
+
+    def fail_llm(*_args, **_kwargs):
+        raise RuntimeError("provider unavailable")
+
+    monkeypatch.setattr(symptom_extractor, "call_structured", fail_llm)
+
+    state, output = run_pipeline("metadata-llm-failure", "sudden right arm weakness and face droop")
+    symptoms = state.symptoms_detected
+
+    assert symptoms.llm_observation_status == "failed"
+    assert symptoms.llm_observation_error_type == "RuntimeError"
+    assert symptoms.observation_mode_used == "llm_failed_deterministic_available"
+    assert symptoms.llm_observation_count == 0
+    assert symptoms.deterministic_observation_count > 0
+    assert output.action_level == "emergency_now"
+
+
 def test_mixed_transient_sensory_and_gait_observations_stay_separate() -> None:
     text = "刚才右手麻了一下，现在好了，但最近走路不稳"
     observations = normalize_observations(text)
