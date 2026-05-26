@@ -169,6 +169,246 @@ def test_runtime_metadata_records_llm_failure_without_changing_action_tier(monke
     assert output.action_level == "emergency_now"
 
 
+def test_emergency_falls_back_to_deterministic_when_llm_returns_schema_invalid_output(monkeypatch) -> None:
+    monkeypatch.setattr(symptom_extractor, "get_provider", lambda _module: "openai_compatible")
+    monkeypatch.setattr(
+        symptom_extractor,
+        "call_structured",
+        lambda *_args, **_kwargs: {"not_observations": []},
+    )
+
+    state, output = run_pipeline(
+        "fallback-schema-invalid",
+        "sudden right arm weakness and face droop",
+    )
+    symptoms = state.symptoms_detected
+
+    assert output.action_level == "emergency_now"
+    assert symptoms.llm_observation_status == "failed"
+    assert symptoms.llm_observation_error_type == "LLMObservationSchemaError"
+    assert symptoms.llm_observation_count == 0
+    assert symptoms.deterministic_observation_count > 0
+    assert symptoms.observation_mode_used == "llm_failed_deterministic_available"
+
+
+def test_emergency_falls_back_to_deterministic_when_llm_returns_empty_observations(monkeypatch) -> None:
+    monkeypatch.setattr(symptom_extractor, "get_provider", lambda _module: "openai_compatible")
+    monkeypatch.setattr(
+        symptom_extractor,
+        "call_structured",
+        lambda *_args, **_kwargs: {"observations": []},
+    )
+
+    state, output = run_pipeline(
+        "fallback-empty-llm",
+        "sudden right arm weakness and face droop",
+    )
+    symptoms = state.symptoms_detected
+
+    assert output.action_level == "emergency_now"
+    assert symptoms.llm_observation_status == "partial"
+    assert symptoms.llm_observation_error_type is None
+    assert symptoms.llm_observation_count == 0
+    assert symptoms.deterministic_observation_count > 0
+    assert symptoms.observation_mode_used == "llm_failed_deterministic_available"
+
+
+def test_emergency_falls_back_to_deterministic_when_llm_observations_are_rejected(monkeypatch) -> None:
+    monkeypatch.setattr(symptom_extractor, "get_provider", lambda _module: "openai_compatible")
+    monkeypatch.setattr(
+        symptom_extractor,
+        "call_structured",
+        lambda *_args, **_kwargs: {
+            "observations": [
+                {
+                    "raw_text": "sudden right arm weakness and face droop",
+                    "symptom_family": "motor",
+                    "signal_strength": "possible",
+                    "onset": "unknown",
+                    "duration_text": "",
+                    "duration_category": "unknown",
+                    "laterality": "unknown",
+                    "progression": "unknown",
+                    "severity_qualifier": "unknown",
+                    "transient_or_resolved": False,
+                    "associated_red_flags": [],
+                    "evidence_text": "sudden right arm weakness",
+                    "confidence": 0.9,
+                }
+            ]
+        },
+    )
+
+    state, output = run_pipeline(
+        "fallback-rejected-llm",
+        "sudden right arm weakness and face droop",
+    )
+    symptoms = state.symptoms_detected
+
+    assert output.action_level == "emergency_now"
+    assert symptoms.llm_observation_status == "failed"
+    assert symptoms.llm_observation_error_type == "LLMObservationValidationError"
+    assert symptoms.llm_observation_count == 0
+    assert symptoms.deterministic_observation_count > 0
+    assert symptoms.observation_mode_used == "llm_failed_deterministic_available"
+
+
+def test_llm_cannot_lower_deterministic_emergency_action(monkeypatch) -> None:
+    monkeypatch.setattr(symptom_extractor, "get_provider", lambda _module: "openai_compatible")
+    monkeypatch.setattr(
+        symptom_extractor,
+        "call_structured",
+        lambda *_args, **_kwargs: {
+            "action_level": "monitor",
+            "concern_level": "low",
+            "diagnosis": "not urgent",
+            "observations": [
+                {
+                    "raw_text": "sudden right arm weakness and face droop",
+                    "symptom_family": "weakness",
+                    "signal_strength": "possible",
+                    "onset": "unknown",
+                    "duration_text": "",
+                    "duration_category": "unknown",
+                    "laterality": "unknown",
+                    "progression": "unknown",
+                    "severity_qualifier": "unknown",
+                    "transient_or_resolved": False,
+                    "associated_red_flags": [],
+                    "evidence_text": "right arm weakness",
+                    "confidence": 0.9,
+                }
+            ],
+        },
+    )
+
+    state, output = run_pipeline(
+        "llm-cannot-lower-emergency",
+        "sudden right arm weakness and face droop",
+    )
+
+    assert output.action_level == "emergency_now"
+    assert not hasattr(state.symptoms_detected, "action_level")
+    assert not hasattr(state.symptoms_detected, "concern_level")
+    assert state.symptoms_detected.observation_mode_used == "llm_augmented"
+
+
+def test_non_emergency_input_continues_with_deterministic_fallback_when_llm_fails(monkeypatch) -> None:
+    monkeypatch.setattr(symptom_extractor, "get_provider", lambda _module: "openai_compatible")
+
+    def fail_llm(*_args, **_kwargs):
+        raise TimeoutError("provider timed out")
+
+    monkeypatch.setattr(symptom_extractor, "call_structured", fail_llm)
+
+    state, output = run_pipeline("fallback-non-emergency", "right hand weak")
+    symptoms = state.symptoms_detected
+
+    assert output.action_level != "emergency_now"
+    assert symptoms.llm_observation_status == "failed"
+    assert symptoms.llm_observation_error_type == "TimeoutError"
+    assert symptoms.observation_mode_used == "llm_failed_deterministic_available"
+    assert symptoms.llm_observation_count == 0
+    assert symptoms.deterministic_observation_count == 1
+
+
+def test_runtime_metadata_records_partial_when_llm_has_accepted_and_rejected_observations(monkeypatch) -> None:
+    monkeypatch.setattr(symptom_extractor, "get_provider", lambda _module: "openai_compatible")
+    monkeypatch.setattr(
+        symptom_extractor,
+        "call_structured",
+        lambda *_args, **_kwargs: {
+            "observations": [
+                {
+                    "raw_text": "right hand numb",
+                    "symptom_family": "sensory",
+                    "signal_strength": "possible",
+                    "onset": "unknown",
+                    "duration_text": "",
+                    "duration_category": "unknown",
+                    "laterality": "one_side",
+                    "progression": "unknown",
+                    "severity_qualifier": "unknown",
+                    "transient_or_resolved": False,
+                    "associated_red_flags": [],
+                    "evidence_text": "right hand numb",
+                    "confidence": 0.9,
+                },
+                {
+                    "raw_text": "right hand numb",
+                    "symptom_family": "sensory",
+                    "signal_strength": "possible",
+                    "onset": "unknown",
+                    "duration_text": "",
+                    "duration_category": "unknown",
+                    "laterality": "one_side",
+                    "progression": "unknown",
+                    "severity_qualifier": "unknown",
+                    "transient_or_resolved": False,
+                    "associated_red_flags": [],
+                    "evidence_text": "right hand numb",
+                    "confidence": 0.1,
+                },
+            ]
+        },
+    )
+
+    state, output = run_pipeline("metadata-partial-llm", "right hand numb")
+    symptoms = state.symptoms_detected
+
+    assert output.action_level != "emergency_now"
+    assert symptoms.llm_observation_status == "partial"
+    assert symptoms.llm_observation_error_type == "LLMObservationValidationError"
+    assert symptoms.llm_observation_count == 1
+    assert symptoms.observation_mode_used == "llm_augmented"
+
+
+def test_multi_turn_metadata_preserves_newest_turn_status(monkeypatch) -> None:
+    monkeypatch.setattr(symptom_extractor, "get_provider", lambda _module: "openai_compatible")
+    responses = [
+        {
+            "observations": [
+                {
+                    "raw_text": "right hand numb",
+                    "symptom_family": "sensory",
+                    "signal_strength": "possible",
+                    "onset": "unknown",
+                    "duration_text": "",
+                    "duration_category": "unknown",
+                    "laterality": "one_side",
+                    "progression": "unknown",
+                    "severity_qualifier": "unknown",
+                    "transient_or_resolved": False,
+                    "associated_red_flags": [],
+                    "evidence_text": "right hand numb",
+                    "confidence": 0.9,
+                }
+            ]
+        },
+        RuntimeError("provider unavailable"),
+    ]
+
+    def call_or_raise(*_args, **_kwargs):
+        response = responses.pop(0)
+        if isinstance(response, Exception):
+            raise response
+        return response
+
+    monkeypatch.setattr(symptom_extractor, "call_structured", call_or_raise)
+
+    state, first_output = run_pipeline("metadata-multiturn", "right hand numb")
+    state, second_output = run_pipeline("metadata-multiturn", "right hand weak", state)
+    symptoms = state.symptoms_detected
+
+    assert first_output.action_level != "emergency_now"
+    assert second_output.action_level != "emergency_now"
+    assert symptoms.llm_observation_status == "failed"
+    assert symptoms.llm_observation_error_type == "RuntimeError"
+    assert symptoms.llm_observation_count == 0
+    assert symptoms.deterministic_observation_count == 1
+    assert symptoms.observation_mode_used == "llm_failed_deterministic_available"
+
+
 def test_mixed_transient_sensory_and_gait_observations_stay_separate() -> None:
     text = "刚才右手麻了一下，现在好了，但最近走路不稳"
     observations = normalize_observations(text)

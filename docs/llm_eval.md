@@ -26,7 +26,21 @@ Normal runtime extraction records internal metadata on `ExtractedSymptoms` so th
 - `deterministic_observation_count`: deterministic observations produced before any LLM merge
 - `observation_mode_used`: `deterministic_only`, `llm_augmented`, or `llm_failed_deterministic_available`
 
-When the symptom extractor provider is not `openai_compatible`, runtime extraction records `not_configured` and `deterministic_only`. When a configured LLM returns accepted observations, runtime extraction records `success` and `llm_augmented`. If the LLM call fails, existing deterministic behavior is preserved and the failure is recorded for future fallback handling.
+When the symptom extractor provider is not `openai_compatible`, runtime extraction records `not_configured` and `deterministic_only`. When a configured LLM returns accepted observations, runtime extraction records `success` or `partial` and `llm_augmented`. If the LLM call fails, returns schema-invalid output, or returns zero accepted observations, existing deterministic observations are preserved and runtime extraction records fallback metadata.
+
+## Runtime Fallback Contract
+
+Live eval PASS does not guarantee provider uptime or valid runtime responses. The deterministic normalizer remains the safety backbone for normal extraction, and LLM observation extraction is optional augmentation.
+
+Runtime fallback rules:
+
+- Provider not configured: use deterministic observations, record `not_configured` and `deterministic_only`.
+- LLM exception or invalid JSON: use deterministic observations, record `failed`, the exception type, and `llm_failed_deterministic_available`.
+- Schema-invalid LLM output or all observations rejected: use deterministic observations, record `failed`, `LLMObservationSchemaError` or `LLMObservationValidationError`, and `llm_failed_deterministic_available`.
+- Valid LLM output with zero observations: use deterministic observations, record `partial`, no error type, and `llm_failed_deterministic_available`.
+- Accepted LLM observations: conservatively merge them with deterministic observations and record `llm_augmented`; if some LLM observations were rejected, status is `partial`.
+
+Fallback does not block a user response, does not add RAG or knowledge retrieval, and does not give the LLM authority over action tier, concern level, diagnosis, care setting, or medical advice.
 
 ## Evaluation Modes
 

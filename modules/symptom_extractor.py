@@ -131,17 +131,21 @@ def extract_symptoms(user_input: str) -> ExtractedSymptoms:
             observation_mode_used=ObservationModeUsed.DETERMINISTIC_ONLY,
         )
 
-    llm_raw, llm_observations, llm_error_type = _extract_llm_observations(user_input)
+    llm_raw, llm_observations, llm_error_type, llm_parse_debug = _extract_llm_observations(user_input)
     merged_observations = merge_observations(deterministic_observations, llm_observations)
     return _from_observations(
         user_input,
         merged_observations,
         llm_raw,
         deterministic_observation_count=len(deterministic_observations),
-        llm_observation_status=_llm_observation_status(llm_observations, llm_error_type),
+        llm_observation_status=_llm_observation_status(
+            llm_observations,
+            llm_error_type,
+            llm_parse_debug,
+        ),
         llm_observation_error_type=llm_error_type,
         llm_observation_count=len(llm_observations),
-        observation_mode_used=_observation_mode_used(llm_observations, llm_error_type),
+        observation_mode_used=_observation_mode_used(llm_observations),
     )
 
 
@@ -149,7 +153,9 @@ def _bool(value) -> bool:
     return bool(value) if value is not None else False
 
 
-def _extract_llm_observations(user_input: str) -> tuple[dict, list[NormalizedObservation], str | None]:
+def _extract_llm_observations(
+    user_input: str,
+) -> tuple[dict, list[NormalizedObservation], str | None, dict]:
     template = load_prompt_template("symptom_observation_extractor") or (
         "Extract normalized symptom observations from this user text. "
         "Return observations only. Do not include action_level, concern_level, diagnosis, "
@@ -160,17 +166,37 @@ def _extract_llm_observations(user_input: str) -> tuple[dict, list[NormalizedObs
     try:
         raw = call_structured(user_prompt, SYSTEM_PROMPT, OBSERVATION_SCHEMA)
     except Exception as exc:
-        return {}, [], type(exc).__name__
+        return {}, [], type(exc).__name__, {}
 
-    return raw, _parse_llm_observations(raw, user_input), None
+    observations, parse_debug = _parse_llm_observations_with_debug(raw, user_input)
+    return raw, observations, _llm_observation_error_type(parse_debug), parse_debug
+
+
+def _llm_observation_error_type(parse_debug: dict) -> str | None:
+    rejection_reasons = parse_debug.get("rejection_reasons") or {}
+    if not rejection_reasons:
+        return None
+    schema_reasons = {
+        "missing_observations_key",
+        "observations_not_list",
+        "unsupported_shape",
+        "item_not_dict",
+    }
+    if any(reason in schema_reasons for reason in rejection_reasons):
+        return "LLMObservationSchemaError"
+    return "LLMObservationValidationError"
 
 
 def _llm_observation_status(
     llm_observations: list[NormalizedObservation],
     error_type: str | None,
+    parse_debug: dict,
 ) -> LLMObservationStatus:
+    rejection_reasons = parse_debug.get("rejection_reasons") or {}
     if error_type:
-        return LLMObservationStatus.FAILED
+        return LLMObservationStatus.PARTIAL if llm_observations else LLMObservationStatus.FAILED
+    if rejection_reasons:
+        return LLMObservationStatus.PARTIAL
     if llm_observations:
         return LLMObservationStatus.SUCCESS
     return LLMObservationStatus.PARTIAL
@@ -178,13 +204,10 @@ def _llm_observation_status(
 
 def _observation_mode_used(
     llm_observations: list[NormalizedObservation],
-    error_type: str | None,
 ) -> ObservationModeUsed:
     if llm_observations:
         return ObservationModeUsed.LLM_AUGMENTED
-    if error_type:
-        return ObservationModeUsed.LLM_FAILED_DETERMINISTIC_AVAILABLE
-    return ObservationModeUsed.DETERMINISTIC_ONLY
+    return ObservationModeUsed.LLM_FAILED_DETERMINISTIC_AVAILABLE
 
 
 def _parse_llm_observations(raw: object, user_input: str) -> list[NormalizedObservation]:

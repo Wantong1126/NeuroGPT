@@ -17,8 +17,8 @@ def _m(dest, src):
             dest.observations.append(observation)
     dest.llm_observation_status = src.llm_observation_status
     dest.llm_observation_error_type = src.llm_observation_error_type
-    dest.llm_observation_count += src.llm_observation_count
-    dest.deterministic_observation_count += src.deterministic_observation_count
+    dest.llm_observation_count = src.llm_observation_count
+    dest.deterministic_observation_count = src.deterministic_observation_count
     dest.observation_mode_used = src.observation_mode_used
     if srf.weakness_one_side: rf.weakness_one_side=True
     if srf.facial_droop: rf.facial_droop=True
