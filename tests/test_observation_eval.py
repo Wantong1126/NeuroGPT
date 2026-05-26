@@ -6,6 +6,10 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import httpx
+import pytest
+
+from core import llm as llm_client
 from core.observations import NormalizedObservation
 from modules import symptom_extractor
 from modules.symptom_normalizer import normalize_observations
@@ -66,6 +70,137 @@ def test_live_mode_skips_gracefully_without_api_key(tmp_path, monkeypatch) -> No
     assert "timestamp:" in text
     assert "live_ran: False" in text
     assert "skipped_reason: NEUROGPT_LLM_API_KEY is not set" in text
+
+
+class _FakeLLMClient:
+    def __init__(self, outcomes: list[object]) -> None:
+        self.outcomes = list(outcomes)
+        self.posts: list[dict] = []
+
+    def __enter__(self) -> "_FakeLLMClient":
+        return self
+
+    def __exit__(self, *_args: object) -> None:
+        return None
+
+    def post(self, url: str, *, headers: dict, json: dict) -> httpx.Response:
+        self.posts.append({"url": url, "headers": headers, "json": json})
+        outcome = self.outcomes.pop(0)
+        if isinstance(outcome, Exception):
+            raise outcome
+        return outcome
+
+
+def _llm_success_response(content: str = '{"observations": []}') -> httpx.Response:
+    request = httpx.Request("POST", "https://example.test/v1/chat/completions")
+    return httpx.Response(
+        200,
+        request=request,
+        json={"choices": [{"message": {"content": content}}]},
+    )
+
+
+def _llm_status_response(status_code: int) -> httpx.Response:
+    request = httpx.Request("POST", "https://example.test/v1/chat/completions")
+    return httpx.Response(status_code, request=request, text="provider error")
+
+
+def _configure_fake_llm(monkeypatch, fake_client: _FakeLLMClient, api_key: str = "test-api-key") -> None:
+    monkeypatch.setenv("NEUROGPT_LLM_API_KEY", api_key)
+    monkeypatch.setenv("NEUROGPT_LLM_BASE_URL", "https://example.test/v1")
+    monkeypatch.setenv("NEUROGPT_LLM_MODEL", "test-model")
+    monkeypatch.setattr(llm_client.time, "sleep", lambda _seconds: None)
+    monkeypatch.setattr(llm_client.httpx, "Client", lambda timeout: fake_client)
+
+
+def test_llm_call_retries_transient_transport_error_then_succeeds(monkeypatch) -> None:
+    request = httpx.Request("POST", "https://example.test/v1/chat/completions")
+    fake_client = _FakeLLMClient(
+        [
+            httpx.ReadError("remote host forcibly closed the connection", request=request),
+            _llm_success_response("ok"),
+        ]
+    )
+    _configure_fake_llm(monkeypatch, fake_client)
+
+    result = llm_client.call("hello")
+
+    assert result == "ok"
+    assert len(fake_client.posts) == 2
+    assert llm_client.get_last_call_attempt_count() == 2
+
+
+@pytest.mark.parametrize("status_code", [401, 402, 404])
+def test_llm_call_does_not_retry_permanent_status_errors(monkeypatch, status_code: int) -> None:
+    fake_client = _FakeLLMClient([_llm_status_response(status_code)])
+    _configure_fake_llm(monkeypatch, fake_client)
+
+    with pytest.raises(httpx.HTTPStatusError):
+        llm_client.call("hello")
+
+    assert len(fake_client.posts) == 1
+    assert llm_client.get_last_call_attempt_count() == 1
+
+
+@pytest.mark.parametrize("status_code", [429, 500, 503])
+def test_llm_call_retries_rate_limit_and_server_errors(monkeypatch, status_code: int) -> None:
+    fake_client = _FakeLLMClient(
+        [
+            _llm_status_response(status_code),
+            _llm_success_response("ok after retry"),
+        ]
+    )
+    _configure_fake_llm(monkeypatch, fake_client)
+
+    result = llm_client.call("hello")
+
+    assert result == "ok after retry"
+    assert len(fake_client.posts) == 2
+    assert llm_client.get_last_call_attempt_count() == 2
+
+
+def test_live_eval_reports_final_api_error_after_retries_without_api_key_leak(tmp_path, monkeypatch) -> None:
+    api_key = "sk-live-eval-secret"
+    request = httpx.Request("POST", "https://example.test/v1/chat/completions")
+    fake_client = _FakeLLMClient(
+        [
+            httpx.ReadError(f"Bearer {api_key} connection dropped", request=request),
+            httpx.ReadError(f"Bearer {api_key} connection dropped", request=request),
+            httpx.ReadError(f"Bearer {api_key} connection dropped", request=request),
+        ]
+    )
+    _configure_fake_llm(monkeypatch, fake_client, api_key=api_key)
+    case = {
+        "id": "api_error_after_retries",
+        "input": "right hand numb",
+        "case_type": "missing_info",
+        "expected_families": ["sensory"],
+        "acceptable_families": ["sensory"],
+        "expected_clarification_needed": True,
+    }
+    cases_path = tmp_path / "cases.jsonl"
+    cases_path.write_text(json.dumps(case) + "\n", encoding="utf-8")
+    report = tmp_path / "live_report.md"
+    raw_debug_path = tmp_path / "raw_debug.jsonl"
+
+    sections = obs_eval.run_evaluation(
+        cases_path=cases_path,
+        report_path=report,
+        live=True,
+        provider="openai_compatible",
+        model="test-model",
+        save_live_raw=True,
+        live_raw_debug_path=raw_debug_path,
+    )
+
+    live_llm = sections["live_llm"]
+    assert len(fake_client.posts) == 3
+    assert live_llm["rejection_reason_counts"]["api_error"] == 1
+    assert live_llm["case_rows"][0]["debug"]["api_attempts"] == 3
+    assert "after 3 attempts" in live_llm["metadata"]["errors"]["api_error_after_retries"]
+    assert api_key not in json.dumps(sections)
+    assert api_key not in report.read_text(encoding="utf-8")
+    assert api_key not in raw_debug_path.read_text(encoding="utf-8")
 
 
 def test_ambiguous_cases_can_expect_clarification_needed() -> None:

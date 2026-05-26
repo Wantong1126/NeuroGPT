@@ -57,6 +57,25 @@ python scripts/eval_observation_extraction.py --live --provider openai_compatibl
 
 If `NEUROGPT_LLM_API_KEY` is missing, live sections are skipped and the default deterministic/mocked report still runs.
 
+## Environment and Provider Failures
+
+Live eval requires `NEUROGPT_LLM_API_KEY` in the current process environment. You can set it in the same PowerShell terminal that launches the eval:
+
+```powershell
+$env:NEUROGPT_LLM_API_KEY = "<API_KEY>"
+$env:NEUROGPT_LLM_BASE_URL = "<OPENAI_COMPATIBLE_BASE_URL>"
+$env:NEUROGPT_LLM_MODEL = "<MODEL_NAME>"
+python scripts/eval_observation_extraction.py --live --provider openai_compatible --model <MODEL_NAME>
+```
+
+NeuroGPT also loads a repository-local `.env` file through `python-dotenv` when available. Environment variables already set in the shell take precedence over `.env` values. `.env` is ignored by git and must not be committed.
+
+`[WinError 10054] remote host forcibly closed an existing connection` means the remote provider, proxy, or network closed the connection before a response body was returned. It is a transport/provider failure, not model-quality evidence and not evidence of parser, schema, prompt, or risk-rule behavior.
+
+The live LLM client retries transient OpenAI-compatible failures with small backoff. It retries connection/read/protocol/timeout errors and HTTP `408`, `409`, `429`, `500`, `502`, `503`, and `504`. It does not retry permanent request, auth, billing, permission, or model/configuration errors such as HTTP `400`, `401`, `402`, `403`, or `404`.
+
+A smoke run that ends with `api_error` remains an honest failed API call. Do not treat its observation metrics as model quality evidence until the provider returns valid response bodies.
+
 ## Candidate Comparison
 
 Run more than one candidate and generate separate reports plus a comparison table:

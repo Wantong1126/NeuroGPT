@@ -261,6 +261,7 @@ def _live_case_debug(raw: object, parse_debug: dict) -> dict:
     if isinstance(raw, dict):
         api_error = raw.get("_live_eval_error")
         json_parse_error = raw.get("_json_parse_error")
+        api_attempts = raw.get("_live_eval_attempts", 1)
         if api_error:
             rejection_reasons["api_error"] += 1
         if json_parse_error:
@@ -268,11 +269,13 @@ def _live_case_debug(raw: object, parse_debug: dict) -> dict:
         api_call_succeeded = not bool(api_error)
         raw_json_returned = api_call_succeeded and not bool(json_parse_error) and "observations" in raw
     else:
+        api_attempts = 1
         api_call_succeeded = True
         raw_json_returned = isinstance(raw, list)
 
     return {
         "api_call_succeeded": api_call_succeeded,
+        "api_attempts": api_attempts,
         "raw_json_returned": raw_json_returned,
         "raw_top_level_keys": parse_debug.get("raw_top_level_keys", []),
         "raw_observation_count": parse_debug.get("raw_observation_count", 0),
@@ -544,6 +547,18 @@ def _safe_report_name(model: str) -> str:
     return cleaned.strip("._-") or "model"
 
 
+def _redact_secret_text(text: str) -> str:
+    redacted = re.sub(r"Bearer\s+[A-Za-z0-9._~+/=-]+", "Bearer [REDACTED]", text)
+    secrets = {
+        os.environ.get("NEUROGPT_LLM_API_KEY", ""),
+        getattr(llm_client, "API_KEY", ""),
+    }
+    for secret in secrets:
+        if secret:
+            redacted = redacted.replace(secret, "[REDACTED]")
+    return redacted
+
+
 def _extract_live_llm_raw(case: dict, provider: str, model: str | None) -> dict:
     if provider != "openai_compatible":
         raise RuntimeError(f"Unsupported live eval provider: {provider}")
@@ -564,15 +579,18 @@ def _extract_live_llm_raw(case: dict, provider: str, model: str | None) -> dict:
         model=model,
         json_mode=True,
     )
+    attempts = llm_client.get_last_call_attempt_count()
     try:
         parsed = json.loads(_strip_json_fences(raw_text))
     except json.JSONDecodeError as exc:
         return {
             "_json_parse_error": str(exc),
             "_live_eval_raw_body": raw_text,
+            "_live_eval_attempts": attempts,
         }
     if isinstance(parsed, dict):
         parsed["_live_eval_raw_body"] = raw_text
+        parsed["_live_eval_attempts"] = attempts
     return parsed
 
 
@@ -604,8 +622,14 @@ def _evaluate_live_sections(
         try:
             raw_by_id[case["id"]] = raw_provider(case, provider, model)
         except Exception as exc:
-            errors[case["id"]] = str(exc)
-            raw_by_id[case["id"]] = {"observations": [], "_live_eval_error": str(exc)}
+            safe_error = _redact_secret_text(str(exc))
+            attempts = getattr(exc, "attempts", None) or llm_client.get_last_call_attempt_count() or 1
+            errors[case["id"]] = safe_error
+            raw_by_id[case["id"]] = {
+                "observations": [],
+                "_live_eval_error": safe_error,
+                "_live_eval_attempts": attempts,
+            }
 
     live_llm = _evaluate_path(cases, lambda case: _llm_case(case, raw_by_id[case["id"]]))
     live_merged = _evaluate_path(cases, lambda case: _merged_case(case, raw_by_id[case["id"]]))
@@ -666,6 +690,7 @@ def _raw_debug_record(
         "provider": provider,
         "model": model or "n/a",
         "api_call_succeeded": debug.get("api_call_succeeded", False),
+        "api_attempts": debug.get("api_attempts", 1),
         "raw_json_returned": debug.get("raw_json_returned", False),
         "raw_response_body": raw_response_body,
         "parsed_json": parsed_json,
@@ -934,8 +959,8 @@ def write_report(sections: dict[str, dict], path: Path = DEFAULT_REPORT_PATH) ->
                     f"| zero_accepted_observation_cases | {metrics.get('zero_accepted_observation_cases')} |",
                     f"| rejection_reason_counts | {_format_rejection_counts(metrics.get('rejection_reason_counts', {}))} |",
                     "",
-                    "| case | api | raw_json | raw_keys | raw_obs | accepted_obs | rejection_reasons |",
-                    "| --- | --- | --- | --- | --- | --- | --- |",
+                    "| case | api | attempts | raw_json | raw_keys | raw_obs | accepted_obs | rejection_reasons |",
+                    "| --- | --- | --- | --- | --- | --- | --- | --- |",
                 ]
             )
             for row in metrics.get("case_rows", []):
@@ -944,6 +969,7 @@ def write_report(sections: dict[str, dict], path: Path = DEFAULT_REPORT_PATH) ->
                     continue
                 lines.append(
                     f"| {row['id']} | {debug.get('api_call_succeeded')} | "
+                    f"{debug.get('api_attempts', 1)} | "
                     f"{debug.get('raw_json_returned')} | "
                     f"{', '.join(debug.get('raw_top_level_keys', []))} | "
                     f"{debug.get('raw_observation_count', 0)} | "
