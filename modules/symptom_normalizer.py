@@ -182,6 +182,38 @@ NON_NEURO_EXPRESSION_REQUEST_PHRASES = [
     "do not know how to describe",
 ]
 
+AMBIGUOUS_LAY_DESCRIPTION_PHRASES = [
+    "说不清楚",
+    "说不清",
+    "说不上哪里不对",
+    "说不上来哪里不对",
+    "说不上哪儿不对",
+    "不知道哪里不对",
+    "不对劲",
+]
+
+CLEAR_SPEECH_CONTEXT_PHRASES = [
+    "讲话",
+    "说话",
+    "口齿",
+    "含糊",
+    "表达",
+    "找词",
+    "叫不出名字",
+    "说不出话",
+    "不会说话",
+    "话到嘴边说不出来",
+    "speech",
+    "slurred",
+    "aphasia",
+    "word finding",
+    "word-finding",
+    "cannot speak",
+    "can't speak",
+    "cannot get words out",
+    "can't get words out",
+]
+
 CONFUSION_AWARENESS_PHRASES = [
     "糊涂",
     "混乱",
@@ -418,6 +450,14 @@ class NormalizedSymptomSignals:
 
 def _matches(text: str, phrases: list[str]) -> list[str]:
     return [phrase for phrase in phrases if phrase in text]
+
+
+def _ambiguous_lay_description_without_clear_speech_context(text: str) -> bool:
+    """Avoid treating vague self-description limits as speech-language symptoms."""
+    return _has_any(text, AMBIGUOUS_LAY_DESCRIPTION_PHRASES) and not _has_any(
+        text,
+        CLEAR_SPEECH_CONTEXT_PHRASES,
+    )
 
 
 def _duration_category(signals: NormalizedSymptomSignals) -> str:
@@ -730,8 +770,11 @@ def normalize_symptoms(user_input: str) -> NormalizedSymptomSignals:
         "fatigue": _matches(text, FATIGUE_PHRASES),
     }
 
-    speech_language_possible = bool(matched["speech_language"])
-    non_neuro_expression_request = bool(matched["non_neuro_expression_request"]) and not speech_language_possible
+    ambiguous_lay_description = _ambiguous_lay_description_without_clear_speech_context(text)
+    speech_language_possible = bool(matched["speech_language"]) and not ambiguous_lay_description
+    speech_slurring_possible = bool(matched["speech_slur"]) and not ambiguous_lay_description
+    word_finding_possible = bool(matched["word_finding"]) and not ambiguous_lay_description
+    non_neuro_expression_request = bool(matched["non_neuro_expression_request"]) or ambiguous_lay_description
     facial_asymmetry_possible = bool(matched["facial_asymmetry"])
     sensory_possible = bool(matched["sensory"])
     fall_possible = bool(matched["fall"])
@@ -742,9 +785,9 @@ def normalize_symptoms(user_input: str) -> NormalizedSymptomSignals:
         weakness_possible=bool(matched["weakness"]),
         facial_asymmetry_possible=facial_asymmetry_possible,
         sensory_possible=sensory_possible,
-        speech_language_possible=False if non_neuro_expression_request else speech_language_possible,
-        speech_slurring_possible=False if non_neuro_expression_request else bool(matched["speech_slur"]),
-        word_finding_possible=False if non_neuro_expression_request else bool(matched["word_finding"]),
+        speech_language_possible=speech_language_possible,
+        speech_slurring_possible=speech_slurring_possible,
+        word_finding_possible=word_finding_possible,
         confusion_awareness_possible=bool(matched["confusion_awareness"]),
         memory_cognitive_possible=bool(matched["memory_cognitive"]),
         gait_balance_possible=bool(matched["gait_balance"]),

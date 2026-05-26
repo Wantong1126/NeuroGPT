@@ -232,6 +232,37 @@ def test_deterministic_safety_override_survives_ambiguous_llm(monkeypatch) -> No
     assert output.action_level == "emergency_now"
 
 
+def test_ambiguous_lay_008_merged_keeps_conservative_other_observation() -> None:
+    text = "右边身体有点不对劲，但说不清楚"
+    deterministic = normalize_observations(text)
+    llm_observation = NormalizedObservation(
+        raw_text=text,
+        symptom_family="other",
+        signal_strength="possible",
+        onset="unknown",
+        duration_text="",
+        duration_category="unknown",
+        laterality="one_side",
+        progression="unknown",
+        severity_qualifier="mild",
+        transient_or_resolved=False,
+        associated_red_flags=[],
+        evidence_text=text,
+        clarification_needed=True,
+        clarification_reason="wording is ambiguous, cannot determine specific symptom family",
+        possible_families=["sensory", "weakness"],
+        source="llm",
+        confidence=0.6,
+    )
+
+    merged = symptom_extractor.merge_observations(deterministic, [llm_observation])
+
+    assert [obs.symptom_family for obs in merged] == ["other"]
+    assert merged[0].clarification_needed is True
+    assert merged[0].laterality == "one_side"
+    assert "slurred_speech" not in merged[0].associated_red_flags
+
+
 def test_transient_low_risk_observation_is_preserved() -> None:
     symptoms = extract_symptoms("坐久了腿麻，站起来好多了")
     _state, output = _run_text("坐久了腿麻，站起来好多了")
