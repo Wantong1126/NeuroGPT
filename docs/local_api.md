@@ -1,6 +1,6 @@
-# Local MVP API
+# Local MVP API And Demo UI
 
-This is a local/demo HTTP API for the NeuroGPT MVP response contract. It is production-compatible in shape, but it is not production infrastructure.
+This is a local/demo HTTP API and simple web UI for the NeuroGPT MVP response contract. It is production-compatible in shape, but it is not production infrastructure.
 
 ## Run Locally
 
@@ -15,6 +15,16 @@ $env:NEUROGPT_API_HOST = "127.0.0.1"
 $env:NEUROGPT_API_PORT = "5050"
 python local_api.py
 ```
+
+Open the local demo UI:
+
+```text
+http://127.0.0.1:5050/
+```
+
+The page calls `POST /api/chat` with browser `fetch`, stores the returned `session_id` in browser memory, and displays the returned `MVPResponsePayload`.
+
+The debug panel is collapsed by default. It is for local development and QA, not normal elder-facing production use.
 
 ## Chat Endpoint
 
@@ -79,9 +89,9 @@ Sessions are stored in memory only. The same `session_id` continues multi-turn s
 
 ## Local/Demo Only
 
-This API intentionally does not add Docker, HTTPS, authentication, database persistence, admin screens, cloud deployment, user management, or production secret handling.
+This API and UI intentionally do not add Docker, HTTPS, authentication, database persistence, admin screens, cloud deployment, user management, or production secret handling.
 
-Before production deployment, add:
+Before production UI/deployment, add:
 
 - Docker or equivalent release packaging
 - HTTPS termination
@@ -93,5 +103,7 @@ Before production deployment, add:
 - rate limits and abuse protection
 - secret management
 - deployment health checks
+- reviewed production UI flows for elder users and caregivers
+- accessibility testing across mobile and desktop
 
 The API does not change medical logic. `risk_rules`, action tiers, extraction, provider configuration, LLM prompt, guidance matching, and response wording remain owned by the existing pipeline.

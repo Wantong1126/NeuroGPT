@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>NeuroGPT Local Demo</title>
+    <link rel="stylesheet" href="/static/styles.css" />
+  </head>
+  <body>
+    <main class="shell">
+      <header class="page-header">
+        <div>
+          <p class="eyebrow">Local MVP API Demo</p>
+          <h1>NeuroGPT Local Demo</h1>
+        </div>
+        <button id="resetButton" class="secondary" type="button">Reset</button>
+      </header>
+
+      <section class="notice" aria-label="Local demo notice">
+        This page calls the local <code>/api/chat</code> endpoint. It is for demo and development only.
+      </section>
+
+      <section id="status" class="status" aria-live="polite">Ready.</section>
+
+      <section id="transcript" class="transcript" aria-label="Chat transcript"></section>
+
+      <form id="chatForm" class="composer">
+        <label for="messageInput">Message</label>
+        <div class="input-row">
+          <textarea
+            id="messageInput"
+            name="message"
+            rows="3"
+            placeholder="Example: sudden right arm weakness and face droop"
+            required
+          ></textarea>
+          <button id="sendButton" type="submit">Send</button>
+        </div>
+      </form>
+    </main>
+
+    <template id="userTurnTemplate">
+      <article class="turn user-turn">
+        <div class="turn-label">You</div>
+        <div class="turn-body"></div>
+      </article>
+    </template>
+
+    <template id="assistantTurnTemplate">
+      <article class="turn assistant-turn">
+        <div class="turn-label">NeuroGPT</div>
+        <div class="action-banner"></div>
+        <div class="main-message"></div>
+        <div class="follow-up card" hidden>
+          <h2>One question</h2>
+          <p></p>
+        </div>
+        <div class="guidance card" hidden>
+          <h2>Professional guidance</h2>
+          <ul></ul>
+        </div>
+        <div class="caregiver card" hidden>
+          <h2>Caregiver / doctor summary</h2>
+          <p></p>
+        </div>
+        <div class="disclaimer"></div>
+        <details class="debug-panel">
+          <summary>Developer metadata</summary>
+          <pre></pre>
+        </details>
+      </article>
+    </template>
+
+    <script src="/static/app.js"></script>
+  </body>
+</html>

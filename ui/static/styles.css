@@ -1,0 +1,198 @@
+:root {
+  color-scheme: light;
+  font-family: Arial, "Microsoft YaHei", sans-serif;
+  background: #f6f7f9;
+  color: #17202a;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+}
+
+.shell {
+  width: min(960px, 100%);
+  margin: 0 auto;
+  padding: 24px 16px 40px;
+}
+
+.page-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  align-items: center;
+  margin-bottom: 16px;
+}
+
+.eyebrow {
+  margin: 0 0 4px;
+  color: #53606d;
+  font-size: 0.9rem;
+}
+
+h1 {
+  margin: 0;
+  font-size: clamp(1.8rem, 5vw, 2.5rem);
+  line-height: 1.1;
+}
+
+button {
+  border: 0;
+  border-radius: 6px;
+  padding: 12px 16px;
+  background: #176b87;
+  color: white;
+  font-size: 1rem;
+  cursor: pointer;
+}
+
+button:disabled {
+  opacity: 0.6;
+  cursor: wait;
+}
+
+button.secondary {
+  background: #5f6b76;
+}
+
+.notice,
+.status,
+.turn,
+.card {
+  border: 1px solid #d8dee5;
+  border-radius: 8px;
+  background: white;
+}
+
+.notice,
+.status {
+  padding: 12px 14px;
+  margin-bottom: 12px;
+  color: #33404c;
+}
+
+.transcript {
+  display: grid;
+  gap: 14px;
+  margin: 18px 0;
+}
+
+.turn {
+  padding: 16px;
+}
+
+.turn-label {
+  color: #53606d;
+  font-size: 0.9rem;
+  margin-bottom: 8px;
+}
+
+.turn-body,
+.main-message,
+.card p,
+.card li {
+  font-size: 1.08rem;
+  line-height: 1.65;
+  white-space: pre-wrap;
+}
+
+.user-turn {
+  background: #eef5f7;
+}
+
+.action-banner {
+  display: inline-block;
+  margin-bottom: 12px;
+  padding: 8px 10px;
+  border-radius: 6px;
+  background: #e8f3ee;
+  color: #183f2d;
+  font-weight: 700;
+}
+
+.card {
+  margin-top: 14px;
+  padding: 12px;
+}
+
+.card h2 {
+  margin: 0 0 8px;
+  font-size: 1rem;
+}
+
+.card p,
+.card ul {
+  margin: 0;
+}
+
+.guidance {
+  background: #fbfaf3;
+}
+
+.caregiver {
+  background: #f5f7fb;
+}
+
+.disclaimer {
+  margin-top: 12px;
+  color: #66717d;
+  font-size: 0.92rem;
+  white-space: pre-wrap;
+}
+
+.debug-panel {
+  margin-top: 12px;
+  color: #44505c;
+}
+
+.debug-panel pre {
+  overflow-x: auto;
+  padding: 12px;
+  border-radius: 6px;
+  background: #f0f2f4;
+}
+
+.composer {
+  position: sticky;
+  bottom: 0;
+  padding: 14px 0 0;
+  background: #f6f7f9;
+}
+
+.composer label {
+  display: block;
+  margin-bottom: 8px;
+  font-weight: 700;
+}
+
+.input-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 10px;
+  align-items: stretch;
+}
+
+textarea {
+  width: 100%;
+  resize: vertical;
+  border: 1px solid #c7d0d9;
+  border-radius: 8px;
+  padding: 12px;
+  font: inherit;
+  line-height: 1.5;
+}
+
+@media (max-width: 640px) {
+  .page-header,
+  .input-row {
+    grid-template-columns: 1fr;
+    display: grid;
+  }
+
+  button {
+    width: 100%;
+  }
+}

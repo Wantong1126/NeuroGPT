@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from uuid import uuid4
 
-from flask import Flask, jsonify, request
+from flask import Flask, jsonify, request, send_from_directory
 from pydantic import BaseModel, Field, ValidationError, field_validator
 
 from core.types import CaseState, MVPResponsePayload
@@ -37,7 +37,11 @@ class ResetRequest(BaseModel):
 
 
 def create_app() -> Flask:
-    app = Flask(__name__)
+    app = Flask(__name__, static_folder="static", static_url_path="/static")
+
+    @app.get("/")
+    def index():
+        return send_from_directory(app.static_folder, "index.html")
 
     @app.post("/api/chat")
     def chat():
