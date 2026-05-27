@@ -2,7 +2,7 @@
 """NeuroGPT v2 - Pipeline Orchestrator."""
 from __future__ import annotations
 
-from core.types import CaseState, PipelineOutput, ActionStep
+from core.types import ActionStep, CaseState, MVPDebugMetadata, MVPResponsePayload, PipelineOutput
 from modules.action_mapper import map_to_action
 from modules.concern_estimator import estimate_concern
 from modules.hesitation_detector import detect_hesitation
@@ -12,6 +12,15 @@ from modules.summary_generator import generate_summary
 from pipeline.multi_turn import merge_turn
 from pipeline.state import new_case
 
+
+MVP_NEXT_ACTION_LABELS = {
+    "emergency_now": "联系当地急救电话或前往急诊",
+    "same_day_review": "今天内就医评估",
+    "prompt_clinical_review": "尽快预约医生评估",
+    "prompt_follow_up": "尽快预约医生",
+    "monitor": "继续观察并记录变化",
+    "educate": "先了解和观察",
+}
 
 
 def _format_steps(steps: list[ActionStep]) -> str:
@@ -167,3 +176,36 @@ def run_pipeline(session_id: str, user_input: str, state: CaseState | None = Non
         disclaimer=elder_response.disclaimer,
     )
     return state, output
+
+
+def to_mvp_response_payload(state: CaseState, output: PipelineOutput) -> MVPResponsePayload:
+    """Serialize existing runtime state into a frontend-ready MVP contract."""
+    symptoms = state.symptoms_detected
+    return MVPResponsePayload(
+        user_message=output.user_message,
+        action_level=output.action_level,
+        concern_level=output.concern_level,
+        next_action_label=MVP_NEXT_ACTION_LABELS.get(output.action_level, output.action_level),
+        needs_follow_up_question=output.needs_follow_up_question,
+        follow_up_question=_first_display_question(output.follow_up_question),
+        caregiver_summary=output.caregiver_summary,
+        disclaimer=output.disclaimer,
+        guidance_snippets=output.guidance_snippets,
+        debug_metadata=MVPDebugMetadata(
+            llm_observation_status=symptoms.llm_observation_status.value,
+            observation_mode_used=symptoms.observation_mode_used.value,
+            llm_observation_error_type=symptoms.llm_observation_error_type,
+            deterministic_observation_count=symptoms.deterministic_observation_count,
+            llm_observation_count=symptoms.llm_observation_count,
+        ),
+    )
+
+
+def _first_display_question(question: str | None) -> str | None:
+    if not question:
+        return None
+    for marker in ("？", "?"):
+        index = question.find(marker)
+        if index >= 0:
+            return question[: index + 1]
+    return question

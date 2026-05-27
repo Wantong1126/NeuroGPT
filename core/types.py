@@ -314,3 +314,26 @@ class PipelineOutput(BaseModel):
     caregiver_summary: Optional[str] = None
     guidance_snippets: list[str] = Field(default_factory=list)
     disclaimer: Optional[str] = None
+
+
+class MVPDebugMetadata(BaseModel):
+    """Internal runtime metadata for developers and QA, not elder-facing UI text."""
+    llm_observation_status: str
+    observation_mode_used: str
+    llm_observation_error_type: Optional[str] = None
+    deterministic_observation_count: int = 0
+    llm_observation_count: int = 0
+
+
+class MVPResponsePayload(BaseModel):
+    """Stable MVP payload for future web/mobile UI integration."""
+    user_message: str
+    action_level: str
+    concern_level: str
+    next_action_label: str = ""
+    needs_follow_up_question: bool
+    follow_up_question: Optional[str] = None
+    caregiver_summary: Optional[str] = None
+    disclaimer: Optional[str] = None
+    guidance_snippets: list[str] = Field(default_factory=list)
+    debug_metadata: MVPDebugMetadata
