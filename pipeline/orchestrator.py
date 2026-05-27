@@ -19,7 +19,7 @@ def _format_steps(steps: list[ActionStep]) -> str:
         return ""
     lines = ["【现在怎么做】"]
     for step in steps[:3]:
-        lines.append(f"{step.step_number}. {step.action}：{step.reason}")
+        lines.append(f"{step.step_number}. {_display_step_action(step.action)}：{_display_step_reason(step.reason)}")
     return "\n".join(lines)
 
 
@@ -33,15 +33,32 @@ def _format_clarification(question: str | None) -> str:
 def _format_caregiver_summary(summary: str) -> str:
     if not summary:
         return ""
-    return f"【给家属/医生的话】\n{summary}"
+    clean_summary = summary.removeprefix("给家属/医生：")
+    return f"【给家属/医生的话】\n{clean_summary}"
 
 
 def _format_guidance(snippets: list[str]) -> str:
     if not snippets:
         return ""
     lines = ["【专业依据提示】"]
-    lines.extend(snippets[:2])
+    lines.extend(snippets[:1])
     return "\n".join(lines)
+
+
+def _display_step_action(action: str) -> str:
+    replacements = {
+        "立即拨打 120/999/911 或直接前往急诊": "联系当地急救电话或前往急诊",
+        "立即拨打急救电话或马上去急诊": "联系当地急救电话或前往急诊",
+    }
+    return replacements.get(action, action)
+
+
+def _display_step_reason(reason: str) -> str:
+    replacements = {
+        "当前症状提示可能存在急性神经系统风险。": "需要尽快让医生评估。",
+        "当前症状符合高风险神经系统警讯，时间很重要。": "需要尽快让医生评估。",
+    }
+    return replacements.get(reason, reason)
 
 
 def _build_assistant_text(

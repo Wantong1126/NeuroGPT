@@ -23,7 +23,7 @@ guidance_cards:
       - "vision"
       - "gait_balance"
       - "sensory"
-    snippet_elder: "这些突然出现的神经系统变化属于高风险警讯。现在重点不是判断具体原因，而是尽快让急诊/急救系统评估。"
+    snippet_elder: "这些突然出现的神经系统变化属于高风险警讯。现在先不要判断原因，重点是尽快让医生评估。"
     snippet_caregiver: "给家属/医生：出现疑似卒中样警讯；请记录最早开始时间，并尽快急诊/急救。"
     safety_notes:
       - "Explain stroke-like warning signs without diagnosing stroke."
@@ -47,7 +47,7 @@ guidance_cards:
       - "acute_confusion"
     trigger_observation_families:
       - "confusion_awareness"
-    snippet_elder: "突然变糊涂、意识或行为和平时明显不同，可能有很多原因，需要尽快让医生评估，而不是先按普通健忘处理。"
+    snippet_elder: "突然变糊涂，或意识、行为和平时明显不同，需要尽快评估。先不要按普通健忘处理。"
     snippet_caregiver: "给家属/医生：近期突然出现意识、认知或行为改变；请说明和平时相比的变化和开始时间。"
     safety_notes:
       - "Do not diagnose delirium."
@@ -67,7 +67,7 @@ guidance_cards:
       - "severe_headache"
     trigger_observation_families:
       - "headache"
-    snippet_elder: "突然、很重、和平时不一样的头痛，尤其伴随神经系统变化时，需要尽快排除严重原因。不要先自行硬扛。"
+    snippet_elder: "突然、很重、和平时不一样的头痛，需要尽快排除严重原因。不要先自行硬扛。"
     snippet_caregiver: "给家属/医生：出现突发或严重头痛；请记录开始时间、是否最严重、以及是否伴随呕吐、意识变化或肢体/说话/视力问题。"
     safety_notes:
       - "Do not diagnose bleeding, aneurysm, meningitis, or stroke."
@@ -93,7 +93,7 @@ guidance_cards:
       - "fall_head_injury"
       - "loss_of_consciousness"
       - "seizure_episode"
-    snippet_elder: "跌倒或头部受伤后，如果有意识不清、昏倒、抽搐、持续头痛、呕吐或新的神经症状，需要尽快接受评估。"
+    snippet_elder: "跌倒或头部受伤后，如果有昏倒、意识不清、抽搐、持续头痛、呕吐或新的神经症状，需要尽快评估。"
     snippet_caregiver: "给家属/医生：有跌倒/头部受伤并伴随红旗信号；请说明受伤时间、是否昏倒、是否呕吐/抽搐、以及是否使用抗凝或抗血小板药。"
     safety_notes:
       - "Do not diagnose concussion, bleeding, or fracture."

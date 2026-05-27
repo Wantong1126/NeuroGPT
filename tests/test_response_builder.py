@@ -14,6 +14,22 @@ from modules import symptom_extractor
 from pipeline.orchestrator import run_pipeline
 
 
+FORBIDDEN_PRESENTATION_PHRASES = [
+    "definitely",
+    "confirmed",
+    "diagnosed as",
+    "确诊",
+    "你得了",
+    "一定是",
+]
+
+
+def assert_no_overclaiming(text: str) -> None:
+    lowered = text.lower()
+    for phrase in FORBIDDEN_PRESENTATION_PHRASES:
+        assert phrase.lower() not in lowered
+
+
 def test_emergency_response_includes_serious_framing_and_immediate_action() -> None:
     _state, output = run_pipeline(
         "response-emergency",
@@ -25,7 +41,9 @@ def test_emergency_response_includes_serious_framing_and_immediate_action() -> N
     assert "【我目前抓到的重点】" in output.user_message
     assert "【为什么要马上动】" in output.user_message
     assert "【现在怎么做】" in output.user_message
-    assert "立即" in output.user_message
+    assert "不建议继续观察" in output.user_message
+    assert "急诊" in output.user_message or "急救" in output.user_message
+    assert_no_overclaiming(output.user_message)
 
 
 def test_emergency_response_does_not_delay_action_with_clarification() -> None:
@@ -49,6 +67,8 @@ def test_monitor_response_does_not_overmedicalize() -> None:
     assert "【为什么现在先观察】" in output.user_message
     assert "目前没有识别到明确高风险模式" in output.user_message
     assert "立即拨打" not in output.user_message
+    assert "高风险警讯" not in output.user_message
+    assert_no_overclaiming(output.user_message)
 
 
 def test_key_understood_signs_are_summarized_from_observations() -> None:
@@ -118,6 +138,9 @@ def test_caregiver_doctor_summary_helper_returns_short_handoff() -> None:
     assert "偏一侧" in summary
     assert "起病时间未确认" in summary
     assert "立即急诊/急救" in summary
+    assert len(summary) <= 110
+    assert "emergency_now" not in summary
+    assert "high" not in summary
 
 
 def test_llm_failure_metadata_is_not_exposed_to_elder_user(monkeypatch) -> None:
@@ -138,3 +161,29 @@ def test_llm_failure_metadata_is_not_exposed_to_elder_user(monkeypatch) -> None:
     assert "LLM" not in output.user_message
     assert "RuntimeError" not in output.user_message
     assert "provider unavailable" not in output.user_message
+
+
+def test_emergency_wording_reduces_duplicate_panic_phrases() -> None:
+    _state, output = run_pipeline(
+        "response-duplicate-emergency",
+        "sudden right arm weakness and face droop",
+    )
+
+    assert output.action_level == "emergency_now"
+    assert output.user_message.count("立即") <= 2
+    assert "联系当地急救电话或前往急诊" in output.user_message
+    assert "给家属/医生：给家属/医生：" not in output.user_message
+
+
+def test_caregiver_summary_preserves_timing_without_internal_labels() -> None:
+    _state, output = run_pipeline(
+        "response-caregiver-memory",
+        "memory getting worse over months",
+    )
+
+    assert output.action_level == "prompt_clinical_review"
+    assert output.caregiver_summary
+    assert "memory getting worse over months" in output.caregiver_summary
+    assert "prompt_clinical_review" not in output.caregiver_summary
+    assert "moderate" not in output.caregiver_summary
+    assert len(output.caregiver_summary) <= 120

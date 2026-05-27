@@ -115,6 +115,8 @@ def test_chronic_progressive_memory_concern_encourages_clinical_review() -> None
     assert "记忆" in output.user_message or "认知" in output.user_message
     assert_caregiver_summary_exists(output)
     assert "memory getting worse over months" in output.caregiver_summary
+    assert "prompt_clinical_review" not in output.caregiver_summary
+    assert "moderate" not in output.caregiver_summary
     assert_no_diagnosis_claim(output.user_message)
 
 

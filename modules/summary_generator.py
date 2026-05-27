@@ -5,6 +5,7 @@ from __future__ import annotations
 from core.llm import call_structured
 from core.provider_settings import get_provider
 from core.types import CaseState, CaregiverSummary
+from modules.response_builder import build_caregiver_doctor_summary
 
 SYSTEM_PROMPT = (
     "You summarize neurological symptom concerns for an adult caregiver. "
@@ -77,16 +78,22 @@ def _generate_heuristic_summary(state: CaseState) -> CaregiverSummary:
         if present
     ]
 
-    urgency = "请立即就医或呼叫急救。" if state.concern_level.value == "high" else "请尽快安排门诊或急诊评估。"
+    urgency = (
+        "现在不建议继续观察，请联系当地急救电话或前往急诊。"
+        if state.concern_level.value == "high"
+        else "请尽快安排医生评估。"
+    )
+    recommended_action = (
+        "陪同老人就医，并记录最早开始时间和症状变化。"
+        if state.concern_level.value == "high"
+        else "帮助老人记录变化，按建议尽快就医。"
+    )
 
     return CaregiverSummary(
-        summary_paragraph=(
-            f"当前对话提取到的主要症状为：{state.symptoms_detected.primary_symptom or state.raw_user_input}。"
-            f"系统评估关注等级为 {state.concern_level.value}，建议行动为 {state.action_level.value}。"
-        ),
+        summary_paragraph=build_caregiver_doctor_summary(state),
         red_flags_summary=red_flags,
         urgency=urgency,
-        recommended_action="陪同老人尽快就医，并向医生按时间线描述症状变化。",
+        recommended_action=recommended_action,
         what_to_say_to_elder="这些症状值得认真评估，我陪你一起去看医生。",
         what_to_say_to_emergency_services="患者出现新的神经系统症状，请评估是否需要急诊处理。",
         what_to_expect_at_er="医生可能会问起病时间、症状变化，并安排神经系统检查或影像检查。",

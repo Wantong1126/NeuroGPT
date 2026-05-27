@@ -148,3 +148,16 @@ def test_llm_failure_fallback_still_attaches_deterministic_guidance(monkeypatch)
     assert output.guidance_snippets
     assert "provider unavailable" not in output.user_message
     assert_no_source_urls(output.user_message)
+
+
+def test_rendered_guidance_is_kept_short_when_multiple_cards_match() -> None:
+    _state, output = run_pipeline(
+        "guidance-short-render",
+        "sudden right arm weakness and worst headache",
+    )
+
+    assert output.action_level == "emergency_now"
+    assert len(output.guidance_snippets) >= 2
+    guidance_section = output.user_message.split("【专业依据提示】", 1)[1].split("\n\n", 1)[0]
+    assert guidance_section.strip().count("\n") == 0
+    assert_no_diagnostic_claims(guidance_section)

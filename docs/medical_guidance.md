@@ -20,4 +20,14 @@ Source names and URLs are stored as metadata in `configs/medical_guidance.yaml`.
 
 Cards use phrases such as "stroke-like warning signs" and "serious causes need to be ruled out." They intentionally avoid diagnostic claims such as "you have stroke," "确诊," or "一定是."
 
+## Response Tone
+
+Elder-facing wording should use short sentences, calm action language, and low cognitive load. It should separate what was noticed, why action is recommended, and what to do next. Emergency responses stay direct, but should avoid repeated panic wording.
+
+Caregiver summaries should be short handoffs: observed signs, timing if known, escalation rationale if present, and the recommended next action. They should not expose internal tier labels or technical extraction status.
+
+If LLM extraction degrades or fails, normal responses should remain usable and calm. Do not mention provider names, timeouts, API failures, JSON parsing, DeepSeek, or fallback mode to elder users or caregivers.
+
+Monitor or ambiguous cases should avoid false reassurance. They should say that no clear emergency pattern is currently identified, then explain what changes should trigger reassessment or escalation.
+
 Future expansion can move this reviewed card set into a broader medical knowledge system, but that should happen only after the deterministic card behavior remains stable and reviewed.

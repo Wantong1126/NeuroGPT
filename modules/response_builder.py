@@ -77,6 +77,8 @@ ACTION_LABELS = {
     "educate": "先了解和观察",
 }
 
+KEY_SIGNS_HEADING = "【我目前抓到的重点】"
+
 
 
 def _load_action_tiers() -> dict:
@@ -129,17 +131,73 @@ def build_key_signs_summary(state: CaseState) -> str:
             break
 
     if not phrases:
-        return "【我目前抓到的重点】目前还没有抓到明确的神经系统红旗信号。"
-    return f"【我目前抓到的重点】{'、'.join(phrases)}。"
+        return f"{KEY_SIGNS_HEADING}目前没有听到明确的急救级红旗信号。"
+    return f"{KEY_SIGNS_HEADING}{'、'.join(phrases)}。"
 
 
 def build_caregiver_doctor_summary(state: CaseState) -> str:
-    signs = build_key_signs_summary(state).replace("【我目前抓到的重点】", "").strip()
+    signs = build_key_signs_summary(state).replace(KEY_SIGNS_HEADING, "").strip()
     action = ACTION_LABELS.get(state.action_level.value, state.action_level.value)
-    timing = ""
-    if _value(state.symptoms_detected.onset) == "unknown":
-        timing = "起病时间未确认，"
-    return f"给家属/医生：{signs}{timing}系统建议：{action}。"
+    timing = _caregiver_timing_text(state)
+    rationale = _caregiver_rationale_text(state)
+    pieces = [signs, timing, rationale, f"建议：{action}。"]
+    return "给家属/医生：" + "".join(piece for piece in pieces if piece)
+
+
+def _caregiver_timing_text(state: CaseState) -> str:
+    symptoms = state.symptoms_detected
+    onset = _value(symptoms.onset)
+    raw_timing = _raw_timing_text(state.raw_user_input)
+    if raw_timing:
+        return f"时间线：{raw_timing}。"
+    if onset == "sudden":
+        return "起病较突然。"
+    if onset == "chronic":
+        return "病程较久。"
+    if _looks_like_timing(symptoms.duration_text):
+        return f"时间线：{symptoms.duration_text}。"
+    return "起病时间未确认。"
+
+
+def _raw_timing_text(text: str) -> str:
+    text = " ".join((text or "").split())
+    if text and len(text) <= 80 and _looks_like_timing(text):
+        return text
+    return ""
+
+
+def _looks_like_timing(text: str) -> bool:
+    lowered = (text or "").lower()
+    timing_markers = (
+        "today",
+        "yesterday",
+        "morning",
+        "hour",
+        "day",
+        "week",
+        "month",
+        "year",
+        "今天",
+        "昨天",
+        "早上",
+        "小时",
+        "天",
+        "周",
+        "月",
+        "年",
+    )
+    return any(marker in lowered for marker in timing_markers)
+
+
+def _caregiver_rationale_text(state: CaseState) -> str:
+    warning_signs = _warning_signs(state)
+    if warning_signs:
+        return f"需要升级的理由：{'、'.join(warning_signs[:3])}。"
+    if state.concern_level.value == "low":
+        return "目前未见明确急救级红旗。"
+    if state.concern_level.value == "moderate":
+        return "需要尽快排除更严重问题。"
+    return ""
 
 
 def _first_question(question: str) -> str:
@@ -152,12 +210,12 @@ def _first_question(question: str) -> str:
 
 def _build_empathy(state: CaseState) -> str:
     if state.concern_level.value == "high":
-        return "【先说结论】这些情况不能按普通不舒服来看，需要马上处理。"
+        return "【先说结论】这些变化需要现在处理，不建议继续观察。"
     if state.concern_level.value == "moderate":
-        return "【需要重视】这些情况不是先拖一拖再说，应该尽快让医生评估。"
+        return "【需要重视】这些变化需要尽快让医生评估。"
     if state.concern_level.value == "low":
-        return "【暂时不属于急救级】我先把风险说清楚，再告诉你什么时候要立刻升级处理。"
-    return "【信息还不够】我先把现在能判断的部分说清楚。"
+        return "【暂时不属于急救级】目前先观察，但要留意有没有新的变化。"
+    return "【信息还不够】我先确认一个会影响判断的问题。"
 
 
 
@@ -186,23 +244,23 @@ def _warning_signs(state: CaseState) -> list[str]:
 
 def _build_meaning(state: CaseState) -> str:
     warning_signs = _warning_signs(state)
-    warning_text = "、".join(warning_signs[:4]) if warning_signs else "目前没有提取到明确的急救级红旗"
+    warning_text = "、".join(warning_signs[:4]) if warning_signs else "目前没有明确急救级红旗"
 
     if state.concern_level.value == "high":
-        return f"【为什么要马上动】当前信息里已经出现高风险警讯：{warning_text}。这类情况关键不是先想原因，而是先尽快就医。"
+        return f"【为什么要马上动】我看到的关键变化是：{warning_text}。重点是尽快确认是否存在危险情况。"
     if state.concern_level.value == "moderate":
-        return "【为什么不能拖】当前情况值得尽快就医评估。现在最重要的是尽快排除更严重的问题，而不是继续等它自己好。"
+        return "【为什么不能拖】这些变化需要专业评估。现在不适合只等它自己好。"
     if state.concern_level.value == "low":
-        return "【为什么现在先观察】目前没有识别到明确高风险模式。重点不是放松警惕，而是继续观察有没有新变化。"
-    return "【为什么还不能下结论】目前信息不足，不能安全地直接判断为没事。"
+        return "【为什么现在先观察】目前没有识别到明确高风险模式。请继续观察有没有新变化或加重。"
+    return "【为什么还不能下结论】现在信息还不够，不能直接说没事。"
 
 
 def build_clarification_response(state: CaseState, question: str) -> ElderResponse:
     """Build a single-question response without changing question selection."""
     return ElderResponse(
-        empathy_statement="【我先确认一件关键事】现在还差一个会影响判断的重要信息。",
+        empathy_statement="【我先确认一件关键事】还差一个会影响判断的信息。",
         key_signs_summary=build_key_signs_summary(state),
-        what_this_means="【为什么要问】这个问题能帮助判断是否需要更快就医；在回答前，我不会把它说成诊断。",
+        what_this_means="【为什么要问】这个问题能帮助判断是否需要更快就医。现在不把它说成诊断。",
         clarification_question=_first_question(question),
         caregiver_summary=build_caregiver_doctor_summary(state),
     )
