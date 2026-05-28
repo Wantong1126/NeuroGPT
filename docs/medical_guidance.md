@@ -26,6 +26,8 @@ Elder-facing wording should use short sentences, calm action language, and low c
 
 Caregiver summaries should be short handoffs: observed signs, timing if known, escalation rationale if present, and the recommended next action. They should not expose internal tier labels or technical extraction status.
 
+Clarification wording should sound like a normal patient conversation. It should not expose internal system reasoning, developer-style section labels, or phrases about what the system will or will not diagnose. Use natural uncertainty language such as "现在不能只凭这些信息判断具体原因" and a single next question.
+
 If LLM extraction degrades or fails, normal responses should remain usable and calm. Do not mention provider names, timeouts, API failures, JSON parsing, DeepSeek, or fallback mode to elder users or caregivers.
 
 Monitor or ambiguous cases should avoid false reassurance. They should say that no clear emergency pattern is currently identified, then explain what changes should trigger reassessment or escalation.

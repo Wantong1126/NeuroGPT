@@ -117,10 +117,11 @@ def _observation_phrase(observation: NormalizedObservation) -> str:
 
 def build_key_signs_summary(state: CaseState) -> str:
     """Summarize structured observations in elder-friendly wording."""
+    raw_phrases = _raw_key_phrases(state.raw_user_input)
     observations = [
         observation
         for observation in state.symptoms_detected.observations
-        if observation.symptom_family != "other" or observation.clarification_needed
+        if observation.symptom_family != "other" or (observation.clarification_needed and not raw_phrases)
     ]
     phrases: list[str] = []
     for observation in observations:
@@ -130,43 +131,93 @@ def build_key_signs_summary(state: CaseState) -> str:
         if len(phrases) >= 4:
             break
 
+    for phrase in raw_phrases:
+        if phrase and phrase not in phrases:
+            phrases.append(phrase)
+        if len(phrases) >= 5:
+            break
+
     if not phrases:
         return f"{KEY_SIGNS_HEADING}目前没有听到明确的急救级红旗信号。"
     return f"{KEY_SIGNS_HEADING}{'、'.join(phrases)}。"
 
 
+def _raw_key_phrases(text: str) -> list[str]:
+    """Add plain-language details only when they are directly present."""
+    source = text or ""
+    phrase_checks = [
+        (("眼前发黑",), "眼前发黑"),
+        (("头晕", "眩晕"), "头晕"),
+        (("头感觉很重", "头很重", "头重"), "头部沉重"),
+        (("起床坐起身", "坐起身", "起身"), "起身或坐起后出现"),
+        (("缓了好久才恢复", "缓了好久", "才恢复"), "过一段时间才缓解"),
+    ]
+    phrases: list[str] = []
+    for needles, phrase in phrase_checks:
+        if any(needle in source for needle in needles) and phrase not in phrases:
+            phrases.append(phrase)
+    return phrases
+
+
 def build_caregiver_doctor_summary(state: CaseState) -> str:
     signs = build_key_signs_summary(state).replace(KEY_SIGNS_HEADING, "").strip()
     action = ACTION_LABELS.get(state.action_level.value, state.action_level.value)
-    timing = _caregiver_timing_text(state)
+    occurrence = _caregiver_occurrence_text(state)
     rationale = _caregiver_rationale_text(state)
-    pieces = [signs, timing, rationale, f"建议：{action}。"]
+    pieces = [
+        f"已知情况：老人{signs}",
+        occurrence,
+        rationale,
+        f"建议：{action}。",
+    ]
     return "给家属/医生：" + "".join(piece for piece in pieces if piece)
 
 
-def _caregiver_timing_text(state: CaseState) -> str:
+def _caregiver_occurrence_text(state: CaseState) -> str:
     symptoms = state.symptoms_detected
     onset = _value(symptoms.onset)
-    raw_timing = _raw_timing_text(state.raw_user_input)
-    if raw_timing:
-        return f"时间线：{raw_timing}。"
+    raw_occurrence = _raw_occurrence_text(state.raw_user_input)
+    if raw_occurrence:
+        return f"发生情况：{raw_occurrence}。"
     if onset == "sudden":
-        return "起病较突然。"
+        return "发生情况：起病较突然。"
     if onset == "chronic":
-        return "病程较久。"
-    if _looks_like_timing(symptoms.duration_text):
-        return f"时间线：{symptoms.duration_text}。"
-    return "起病时间未确认。"
+        return "发生情况：病程较久。"
+    if _looks_like_time_reference(symptoms.duration_text):
+        return f"发生情况：{symptoms.duration_text}。"
+    return "还需要确认：起病时间。"
 
 
-def _raw_timing_text(text: str) -> str:
-    text = " ".join((text or "").split())
-    if text and len(text) <= 80 and _looks_like_timing(text):
-        return text
-    return ""
+def _raw_occurrence_text(text: str) -> str:
+    source = text or ""
+    parts: list[str] = []
+    if "今天早上" in source:
+        parts.append("今天早上")
+    elif "早上" in source:
+        parts.append("早上")
+    elif "today" in source.lower():
+        parts.append("today")
+    elif "morning" in source.lower():
+        parts.append("morning")
+
+    if any(token in source for token in ("起床坐起身", "坐起身", "起身")):
+        parts.append("起身或坐起后")
+
+    if any(token in source for token in ("缓了好久才恢复", "缓了好久", "才恢复")):
+        parts.append("过一段时间才缓解")
+
+    if not parts and _looks_like_time_reference(source):
+        if "over months" in source.lower():
+            return "数月来逐渐变化"
+        if "months" in source.lower():
+            return "持续数月"
+        if len(source) <= 40:
+            return source
+
+    return "，".join(parts)
 
 
-def _looks_like_timing(text: str) -> bool:
+def _looks_like_time_reference(text: str) -> bool:
     lowered = (text or "").lower()
     timing_markers = (
         "today",
@@ -258,9 +309,9 @@ def _build_meaning(state: CaseState) -> str:
 def build_clarification_response(state: CaseState, question: str) -> ElderResponse:
     """Build a single-question response without changing question selection."""
     return ElderResponse(
-        empathy_statement="【我先确认一件关键事】还差一个会影响判断的信息。",
+        empathy_statement="还需要补充一个关键信息。",
         key_signs_summary=build_key_signs_summary(state),
-        what_this_means="【为什么要问】这个问题能帮助判断是否需要更快就医。现在不把它说成诊断。",
+        what_this_means="现在不能只凭这些信息判断具体原因。这个问题是为了判断是否需要更快就医。",
         clarification_question=_first_question(question),
         caregiver_summary=build_caregiver_doctor_summary(state),
     )

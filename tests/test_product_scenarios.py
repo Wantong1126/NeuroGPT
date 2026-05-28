@@ -76,7 +76,10 @@ def test_ambiguous_one_sided_sensory_complaint_asks_one_question() -> None:
 
     assert output.action_level != "emergency_now"
     assert output.needs_follow_up_question is True
-    assert "【我只需要先确认这一点】" in output.user_message
+    assert "【接下来要确认】" in output.user_message
+    assert "【我只需要先确认这一点】" not in output.user_message
+    assert "【为什么要问】" not in output.user_message
+    assert "现在不把它说成诊断" not in output.user_message
     assert_one_question(output.user_message)
     assert "偏一侧" in output.user_message
     assert "麻木" in output.user_message
@@ -114,7 +117,9 @@ def test_chronic_progressive_memory_concern_encourages_clinical_review() -> None
     assert "尽快" in output.user_message
     assert "记忆" in output.user_message or "认知" in output.user_message
     assert_caregiver_summary_exists(output)
-    assert "memory getting worse over months" in output.caregiver_summary
+    assert "老人" in output.caregiver_summary
+    assert "发生情况：数月来逐渐变化" in output.caregiver_summary
+    assert "时间线：" not in output.caregiver_summary
     assert "prompt_clinical_review" not in output.caregiver_summary
     assert "moderate" not in output.caregiver_summary
     assert_no_diagnosis_claim(output.user_message)

@@ -36,7 +36,7 @@ def _format_steps(steps: list[ActionStep]) -> str:
 def _format_clarification(question: str | None) -> str:
     if not question:
         return ""
-    return f"【我只需要先确认这一点】\n{question}"
+    return f"【接下来要确认】\n{question}"
 
 
 def _format_caregiver_summary(summary: str) -> str:

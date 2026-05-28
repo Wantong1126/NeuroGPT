@@ -30,6 +30,17 @@ def assert_no_overclaiming(text: str) -> None:
         assert phrase.lower() not in lowered
 
 
+def assert_no_developer_clarification_wording(text: str) -> None:
+    banned = [
+        "【我先确认一件关键事】",
+        "【为什么要问】",
+        "现在不把它说成诊断",
+        "【我只需要先确认这一点】",
+    ]
+    for phrase in banned:
+        assert phrase not in text
+
+
 def test_emergency_response_includes_serious_framing_and_immediate_action() -> None:
     _state, output = run_pipeline(
         "response-emergency",
@@ -55,6 +66,7 @@ def test_emergency_response_does_not_delay_action_with_clarification() -> None:
     assert output.action_level == "emergency_now"
     assert output.follow_up_question is None
     assert "【我只需要先确认这一点】" not in output.user_message
+    assert_no_developer_clarification_wording(output.user_message)
 
 
 def test_monitor_response_does_not_overmedicalize() -> None:
@@ -109,8 +121,9 @@ def test_pipeline_surfaces_one_clarification_question_when_needed() -> None:
     _state, output = run_pipeline("response-one-question", "right hand weak")
 
     assert output.needs_follow_up_question is True
-    assert "【我只需要先确认这一点】" in output.user_message
-    question_section = output.user_message.split("【我只需要先确认这一点】", 1)[1]
+    assert "【接下来要确认】" in output.user_message
+    assert_no_developer_clarification_wording(output.user_message)
+    question_section = output.user_message.split("【接下来要确认】", 1)[1]
     assert question_section.count("？") + question_section.count("?") == 1
 
 
@@ -135,9 +148,11 @@ def test_caregiver_doctor_summary_helper_returns_short_handoff() -> None:
     summary = build_caregiver_doctor_summary(state)
 
     assert summary.startswith("给家属/医生：")
+    assert "老人" in summary
     assert "偏一侧" in summary
-    assert "起病时间未确认" in summary
+    assert "还需要确认：起病时间" in summary
     assert "立即急诊/急救" in summary
+    assert "时间线：" not in summary
     assert len(summary) <= 110
     assert "emergency_now" not in summary
     assert "high" not in summary
@@ -183,7 +198,37 @@ def test_caregiver_summary_preserves_timing_without_internal_labels() -> None:
 
     assert output.action_level == "prompt_clinical_review"
     assert output.caregiver_summary
-    assert "memory getting worse over months" in output.caregiver_summary
+    assert "老人" in output.caregiver_summary
+    assert "发生情况：数月来逐渐变化" in output.caregiver_summary
+    assert "时间线：" not in output.caregiver_summary
     assert "prompt_clinical_review" not in output.caregiver_summary
     assert "moderate" not in output.caregiver_summary
     assert len(output.caregiver_summary) <= 120
+
+
+def test_patient_facing_clarification_uses_natural_uncertainty_wording() -> None:
+    _state, output = run_pipeline(
+        "response-natural-clarification",
+        "my right hand feels weird and numb",
+    )
+
+    assert output.needs_follow_up_question is True
+    assert "现在不能只凭这些信息判断具体原因" in output.user_message
+    assert "这个问题是为了判断是否需要更快就医" in output.user_message
+    assert "【接下来要确认】" in output.user_message
+    assert_no_developer_clarification_wording(output.user_message)
+
+
+def test_rich_lay_description_keeps_directly_present_symptom_details() -> None:
+    text = "今天早上起床坐起身时突然眼前发黑，头晕，头感觉很重，缓了好久才恢复"
+    _state, output = run_pipeline("response-rich-lay-description", text)
+
+    assert "眼前发黑" in output.user_message
+    assert "头晕" in output.user_message
+    assert "头部沉重" in output.user_message
+    assert "起身或坐起后出现" in output.user_message
+    assert "过一段时间才缓解" in output.user_message
+    assert "视力变化突然出现" not in output.user_message
+    assert "时间线：" not in (output.caregiver_summary or "")
+    assert "老人" in (output.caregiver_summary or "")
+    assert_no_overclaiming(output.user_message)
