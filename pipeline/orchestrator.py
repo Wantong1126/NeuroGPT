@@ -2,12 +2,27 @@
 """NeuroGPT v2 - Pipeline Orchestrator."""
 from __future__ import annotations
 
-from core.types import ActionStep, CaseState, MVPDebugMetadata, MVPResponsePayload, PipelineOutput
+from core.types import (
+    ActionStep,
+    CareHomeHandoff,
+    CaseState,
+    DailyReportItem,
+    MVPDebugMetadata,
+    MVPResponsePayload,
+    PipelineOutput,
+)
 from modules.action_mapper import map_to_action
 from modules.concern_estimator import estimate_concern
 from modules.hesitation_detector import detect_hesitation
 from modules.question_manager import decide_question
-from modules.response_builder import build_clarification_response, build_response
+from modules.response_builder import (
+    ACTION_LABELS,
+    FAMILY_LABELS,
+    KEY_SIGNS_HEADING,
+    build_clarification_response,
+    build_key_signs_summary,
+    build_response,
+)
 from modules.summary_generator import generate_summary
 from pipeline.multi_turn import merge_turn
 from pipeline.state import new_case
@@ -20,6 +35,41 @@ MVP_NEXT_ACTION_LABELS = {
     "prompt_follow_up": "尽快预约医生",
     "monitor": "继续观察并记录变化",
     "educate": "先了解和观察",
+}
+
+ESCALATION_ACTIONS = {"emergency_now", "same_day_review"}
+
+PSYCHOLOGICAL_MARKERS = (
+    "没意思",
+    "不想见人",
+    "睡不好",
+    "睡眠",
+    "心情",
+    "焦虑",
+    "害怕",
+    "孤单",
+    "不开心",
+    "hopeless",
+    "withdraw",
+    "withdrawn",
+    "sleep",
+    "appetite",
+    "mood",
+    "anxiety",
+)
+
+NEURO_FAMILIES = {
+    "weakness",
+    "facial_asymmetry",
+    "sensory",
+    "speech_language",
+    "confusion_awareness",
+    "memory_cognitive",
+    "gait_balance",
+    "headache",
+    "vision",
+    "seizure_episode",
+    "loss_of_consciousness",
 }
 
 
@@ -191,6 +241,8 @@ def to_mvp_response_payload(state: CaseState, output: PipelineOutput) -> MVPResp
         caregiver_summary=output.caregiver_summary,
         disclaimer=output.disclaimer,
         guidance_snippets=output.guidance_snippets,
+        care_home_handoff=build_care_home_handoff(state, output),
+        daily_report_item=build_daily_report_item(state, output),
         debug_metadata=MVPDebugMetadata(
             llm_observation_status=symptoms.llm_observation_status.value,
             observation_mode_used=symptoms.observation_mode_used.value,
@@ -199,6 +251,279 @@ def to_mvp_response_payload(state: CaseState, output: PipelineOutput) -> MVPResp
             llm_observation_count=symptoms.llm_observation_count,
         ),
     )
+
+
+def build_care_home_handoff(state: CaseState, output: PipelineOutput) -> CareHomeHandoff:
+    """Build a deterministic staff handoff from existing pipeline state."""
+    action_level = output.action_level
+    escalation_needed = _escalation_needed(action_level)
+    warning_signs = _red_flag_labels(state)
+    known_facts = _known_facts(state)
+    missing_info = _missing_critical_info(state, output, escalation_needed)
+    follow_up_tasks = _follow_up_tasks(state, escalation_needed)
+    caregiver_brief = output.caregiver_summary or state.caregiver_summary or _resident_summary(state)
+
+    return CareHomeHandoff(
+        resident_summary=_resident_summary(state),
+        known_facts=known_facts,
+        missing_critical_info=missing_info,
+        risk_status=f"{output.concern_level}/{action_level}",
+        escalation_reason="、".join(warning_signs[:4]) if escalation_needed and warning_signs else None,
+        recommended_staff_action=_recommended_staff_action(action_level),
+        follow_up_tasks=follow_up_tasks,
+        suggested_next_observations=_suggested_next_observations(state, escalation_needed),
+        caregiver_brief=_clean_summary(caregiver_brief),
+    )
+
+
+def build_daily_report_item(state: CaseState, output: PipelineOutput) -> DailyReportItem:
+    """Build one structured care-home daily review event item."""
+    handoff = build_care_home_handoff(state, output)
+    category = _daily_category(state)
+    escalation_needed = _escalation_needed(output.action_level)
+
+    return DailyReportItem(
+        headline=_daily_headline(state, output.action_level),
+        category=category,
+        risk_level=output.concern_level,
+        action_level=output.action_level,
+        summary_for_department=_summary_for_department(handoff),
+        unresolved_questions=handoff.missing_critical_info[:4],
+        staff_follow_up_needed=bool(
+            output.needs_follow_up_question
+            or handoff.follow_up_tasks
+            or output.action_level != "educate"
+        ),
+        escalation_needed=escalation_needed,
+    )
+
+
+def _value(value: object) -> str:
+    return str(getattr(value, "value", value) or "")
+
+
+def _short_text(text: str, limit: int = 80) -> str:
+    clean = " ".join((text or "").split())
+    if len(clean) <= limit:
+        return clean
+    return clean[: limit - 1].rstrip() + "..."
+
+
+def _clean_summary(summary: str) -> str:
+    return (summary or "").removeprefix("给家属/医生：").strip()
+
+
+def _key_signs_text(state: CaseState) -> str:
+    return build_key_signs_summary(state).replace(KEY_SIGNS_HEADING, "").strip()
+
+
+def _resident_summary(state: CaseState) -> str:
+    signs = _key_signs_text(state).rstrip("。")
+    raw = _short_text(state.raw_user_input)
+    if signs and "目前没有听到" not in signs:
+        return f"居民报告：{signs}。"
+    if raw:
+        return f"居民报告：{raw}。"
+    return "居民报告了需要继续了解的身体或情绪变化。"
+
+
+def _known_facts(state: CaseState) -> list[str]:
+    facts: list[str] = []
+    signs = _key_signs_text(state).rstrip("。")
+    if signs:
+        facts.append(f"已知症状：{signs}")
+
+    onset = _value(state.symptoms_detected.onset)
+    if onset == "sudden":
+        facts.append("发生特点：突然出现")
+    elif onset == "chronic":
+        facts.append("发生特点：持续较久或逐渐变化")
+    elif state.symptoms_detected.duration_text:
+        facts.append(f"持续时间：{state.symptoms_detected.duration_text}")
+
+    laterality = _value(state.symptoms_detected.laterality)
+    if laterality == "one_side":
+        facts.append("部位特点：偏一侧")
+    elif laterality == "both_sides":
+        facts.append("部位特点：两侧")
+
+    for observation in state.symptoms_detected.observations:
+        family = _value(observation.symptom_family)
+        if family == "other":
+            continue
+        label = FAMILY_LABELS.get(family, family)
+        if observation.evidence_text:
+            fact = f"结构化观察：{label}（{_short_text(observation.evidence_text, 40)}）"
+        else:
+            fact = f"结构化观察：{label}"
+        if fact not in facts:
+            facts.append(fact)
+        if len(facts) >= 5:
+            break
+
+    return facts or ["已知症状：居民报告了不适，但结构化信息仍有限。"]
+
+
+def _red_flag_labels(state: CaseState) -> list[str]:
+    rf = state.symptoms_detected.red_flags
+    labels = [
+        (rf.weakness_one_side, "单侧无力"),
+        (rf.facial_droop, "面部歪斜"),
+        (rf.slurred_speech, "说话不清"),
+        (rf.sudden_onset, "突然起病"),
+        (rf.acute_confusion, "急性意识或认知改变"),
+        (rf.seizure, "抽搐"),
+        (rf.loss_of_consciousness, "意识丧失"),
+        (rf.severe_headache, "剧烈头痛"),
+        (rf.vision_loss, "视力突然改变"),
+        (rf.gait_imbalance, "走路或平衡明显改变"),
+        (rf.focal_numbness, "局灶麻木"),
+        (rf.new_falls, "新近跌倒"),
+        (rf.head_injury, "头部受伤"),
+    ]
+    return [label for present, label in labels if present]
+
+
+def _missing_critical_info(
+    state: CaseState,
+    output: PipelineOutput,
+    escalation_needed: bool,
+) -> list[str]:
+    items: list[str] = []
+
+    def add(item: str) -> None:
+        if item not in items:
+            items.append(item)
+
+    if escalation_needed:
+        add("准确起病时间")
+        add("症状现在是否仍在持续或加重")
+        add("是否出现单侧无力、面部歪斜或说话不清")
+        add("是否发生跌倒、头部受伤或意识丧失")
+    else:
+        add("症状是否反复出现")
+        add("症状是否正在加重")
+        add("是否影响走路、进食、说话或日常活动")
+        add("与老人平时状态相比是否不同")
+
+    if _has_psychological_context(state):
+        add("近几天情绪、睡眠、食欲和社交变化")
+
+    question = _first_display_question(output.follow_up_question or state.follow_up_question)
+    if question:
+        add(f"待老人确认：{question}")
+
+    return items
+
+
+def _follow_up_tasks(state: CaseState, escalation_needed: bool) -> list[str]:
+    tasks: list[str] = []
+
+    def add(task: str) -> None:
+        if task not in tasks:
+            tasks.append(task)
+
+    if escalation_needed:
+        add("记录准确起病时间和持续时间")
+        add("确认症状是否仍在持续或加重")
+        add("检查说话是否清楚")
+        add("观察面部是否对称")
+        add("检查单侧手臂或腿部力量")
+        add("询问是否跌倒、头部受伤或意识丧失")
+        add("记录与老人平时基线相比是否明显不同")
+    else:
+        add("确认症状是否仍在持续")
+        add("记录是否反复出现或加重")
+        add("观察是否影响走路、进食、说话或日常活动")
+        add("留意是否出现新的单侧无力、面部歪斜、说话不清或意识改变")
+        add("记录与老人平时基线相比是否不同")
+
+    if _has_psychological_context(state):
+        add("询问近几天情绪、睡眠、食欲和社交变化")
+        add("安排工作人员复核心理/社交状态并记录变化")
+
+    return tasks
+
+
+def _suggested_next_observations(state: CaseState, escalation_needed: bool) -> list[str]:
+    observations = [
+        "症状开始时间和持续时间",
+        "与老人平时基线的差异",
+    ]
+    families = {_value(obs.symptom_family) for obs in state.symptoms_detected.observations}
+    if escalation_needed or families & {"weakness", "facial_asymmetry", "speech_language", "sensory"}:
+        observations.extend(["语言清晰度", "面部对称性", "单侧肢体力量或麻木"])
+    if families & {"gait_balance", "fall_head_injury"} or state.falls_or_injury:
+        observations.extend(["步态和平衡", "跌倒或头部受伤线索"])
+    if families & {"confusion_awareness", "memory_cognitive"} or state.cognitive_change:
+        observations.extend(["意识和定向力", "近期记忆和认知变化"])
+    if _has_psychological_context(state):
+        observations.extend(["情绪", "睡眠", "食欲", "社交意愿"])
+    return _dedupe(observations)[:8]
+
+
+def _recommended_staff_action(action_level: str) -> str:
+    if action_level == "emergency_now":
+        return "立即通知值班医护并联系当地急救/急诊流程；不要让老人独自等待。"
+    if action_level == "same_day_review":
+        return "今天内通知医护人员评估，并记录症状变化。"
+    if action_level in {"prompt_clinical_review", "prompt_follow_up"}:
+        return "安排医护复核并尽快预约临床评估。"
+    if action_level == "monitor":
+        return "继续观察并记录变化；如出现红旗信号立即升级。"
+    return "记录本次情况，按机构流程继续观察。"
+
+
+def _daily_category(state: CaseState) -> str:
+    families = {_value(obs.symptom_family) for obs in state.symptoms_detected.observations}
+    rf = state.symptoms_detected.red_flags
+    if "fall_head_injury" in families or rf.head_injury or rf.new_falls or state.falls_or_injury:
+        return "fall_or_injury"
+    if "memory_cognitive" in families or "confusion_awareness" in families or state.cognitive_change:
+        return "cognitive_change"
+    if _has_psychological_context(state):
+        return "psychological_wellbeing"
+    if families & NEURO_FAMILIES or _red_flag_labels(state):
+        return "neuro_symptom"
+    return "general_monitoring"
+
+
+def _has_psychological_context(state: CaseState) -> bool:
+    raw = (state.raw_user_input or "").lower()
+    if state.psychological_behavior_flags or state.symptoms_detected.apathy or state.symptoms_detected.sleep_disturbance:
+        return True
+    return any(marker in raw for marker in PSYCHOLOGICAL_MARKERS)
+
+
+def _daily_headline(state: CaseState, action_level: str) -> str:
+    action = ACTION_LABELS.get(action_level, action_level)
+    signs = _key_signs_text(state).rstrip("。")
+    if signs and "目前没有听到" not in signs:
+        return f"{action}：{_short_text(signs, 36)}"
+    raw = _short_text(state.raw_user_input, 36)
+    if raw:
+        return f"{action}：{raw}"
+    return f"{action}：居民状态变化待复核"
+
+
+def _summary_for_department(handoff: CareHomeHandoff) -> str:
+    known = "；".join(handoff.known_facts[:3])
+    action = handoff.recommended_staff_action
+    if known and action:
+        return f"{known}。建议：{action}"
+    return handoff.resident_summary
+
+
+def _escalation_needed(action_level: str) -> bool:
+    return action_level in ESCALATION_ACTIONS
+
+
+def _dedupe(items: list[str]) -> list[str]:
+    result: list[str] = []
+    for item in items:
+        if item and item not in result:
+            result.append(item)
+    return result
 
 
 def _first_display_question(question: str | None) -> str | None:

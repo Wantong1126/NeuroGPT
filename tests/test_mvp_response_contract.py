@@ -20,6 +20,8 @@ FRONTEND_FIELDS = {
     "caregiver_summary",
     "disclaimer",
     "guidance_snippets",
+    "care_home_handoff",
+    "daily_report_item",
     "debug_metadata",
 }
 
@@ -66,6 +68,8 @@ def test_mvp_payload_contains_required_frontend_and_debug_fields() -> None:
     assert data["user_message"]
     assert data["next_action_label"]
     assert data["guidance_snippets"]
+    assert data["care_home_handoff"]
+    assert data["daily_report_item"]
 
 
 def test_payload_separates_debug_metadata_from_user_message() -> None:

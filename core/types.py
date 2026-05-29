@@ -325,6 +325,31 @@ class MVPDebugMetadata(BaseModel):
     llm_observation_count: int = 0
 
 
+class CareHomeHandoff(BaseModel):
+    """Structured staff handoff for care-home room tablet workflows."""
+    resident_summary: str = ""
+    known_facts: list[str] = Field(default_factory=list)
+    missing_critical_info: list[str] = Field(default_factory=list)
+    risk_status: str = ""
+    escalation_reason: Optional[str] = None
+    recommended_staff_action: str = ""
+    follow_up_tasks: list[str] = Field(default_factory=list)
+    suggested_next_observations: list[str] = Field(default_factory=list)
+    caregiver_brief: str = ""
+
+
+class DailyReportItem(BaseModel):
+    """Single event item suitable for future care-home daily review aggregation."""
+    headline: str = ""
+    category: str = "general_monitoring"
+    risk_level: str = ""
+    action_level: str = ""
+    summary_for_department: str = ""
+    unresolved_questions: list[str] = Field(default_factory=list)
+    staff_follow_up_needed: bool = False
+    escalation_needed: bool = False
+
+
 class MVPResponsePayload(BaseModel):
     """Stable MVP payload for future web/mobile UI integration."""
     user_message: str
@@ -336,4 +361,6 @@ class MVPResponsePayload(BaseModel):
     caregiver_summary: Optional[str] = None
     disclaimer: Optional[str] = None
     guidance_snippets: list[str] = Field(default_factory=list)
+    care_home_handoff: Optional[CareHomeHandoff] = None
+    daily_report_item: Optional[DailyReportItem] = None
     debug_metadata: MVPDebugMetadata

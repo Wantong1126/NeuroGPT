@@ -15,6 +15,37 @@ Use `pipeline.orchestrator.to_mvp_response_payload(state, output)` after `run_pi
 - `caregiver_summary`: concise caregiver/doctor handoff text.
 - `disclaimer`: configured disclaimer text, when present.
 - `guidance_snippets`: short source-backed guidance snippets. These are displayable, but should remain secondary to the action instruction.
+- `care_home_handoff`: structured care-home staff handoff for the current turn.
+- `daily_report_item`: structured daily-review item for future care-home department aggregation.
+
+## Care-Home Workflow Fields
+
+`care_home_handoff` is designed for staff/caregiver workflows, not for direct elder-facing chat text. It contains:
+
+- `resident_summary`
+- `known_facts`
+- `missing_critical_info`
+- `risk_status`
+- `escalation_reason`
+- `recommended_staff_action`
+- `follow_up_tasks`
+- `suggested_next_observations`
+- `caregiver_brief`
+
+`daily_report_item` is a compact review object:
+
+- `headline`
+- `category`
+- `risk_level`
+- `action_level`
+- `summary_for_department`
+- `unresolved_questions`
+- `staff_follow_up_needed`
+- `escalation_needed`
+
+Supported category values include `neuro_symptom`, `cognitive_change`, `psychological_wellbeing`, `fall_or_injury`, and `general_monitoring`.
+
+These fields are generated from existing `CaseState`, observations, red flags, action tier, follow-up question, and caregiver summary. They do not call an LLM and do not decide medical risk.
 
 ## Internal/Debug Metadata
 
@@ -35,6 +66,8 @@ Normal user-facing UI should not show provider names, API status, timeout text, 
 ## Caregiver Summary
 
 The caregiver summary should be displayed as a short handoff, separate from the elder-facing message. It should preserve observed signs, timing when available, escalation rationale when present, and the recommended next action. It should not claim a diagnosis.
+
+Care-home staff interfaces should prefer `care_home_handoff` and `daily_report_item` when structured workflow fields are needed.
 
 ## Audience Mode
 

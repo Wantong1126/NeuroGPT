@@ -56,6 +56,27 @@ Response:
     "caregiver_summary": "...",
     "disclaimer": "...",
     "guidance_snippets": ["..."],
+    "care_home_handoff": {
+      "resident_summary": "...",
+      "known_facts": ["..."],
+      "missing_critical_info": ["..."],
+      "risk_status": "high/emergency_now",
+      "escalation_reason": "...",
+      "recommended_staff_action": "...",
+      "follow_up_tasks": ["..."],
+      "suggested_next_observations": ["..."],
+      "caregiver_brief": "..."
+    },
+    "daily_report_item": {
+      "headline": "...",
+      "category": "neuro_symptom",
+      "risk_level": "high",
+      "action_level": "emergency_now",
+      "summary_for_department": "...",
+      "unresolved_questions": ["..."],
+      "staff_follow_up_needed": true,
+      "escalation_needed": true
+    },
     "debug_metadata": {
       "llm_observation_status": "not_configured",
       "observation_mode_used": "deterministic_only",
@@ -67,7 +88,7 @@ Response:
 }
 ```
 
-The frontend may render the top-level `payload` display fields. `debug_metadata` is for developer tooling and QA, not normal elder-facing UI.
+The frontend may render the top-level `payload` display fields. `care_home_handoff` and `daily_report_item` are for staff/caregiver review workflows. `debug_metadata` is for developer tooling and QA, not normal elder-facing UI.
 
 ## Reset Endpoint
 
@@ -104,6 +125,7 @@ Before production UI/deployment, add:
 - secret management
 - deployment health checks
 - reviewed production UI flows for elder users and caregivers
+- resident/room identifiers and persistent care-home daily review aggregation
 - accessibility testing across mobile and desktop
 
 The API does not change medical logic. `risk_rules`, action tiers, extraction, provider configuration, LLM prompt, guidance matching, and response wording remain owned by the existing pipeline.
