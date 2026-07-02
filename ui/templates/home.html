@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>NeuroGPT</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+</head>
+<body>
+  <main class="shell">
+    <header class="page-header">
+      <div>
+        <p class="eyebrow">Elder care status and workflow</p>
+        <h1>NeuroGPT</h1>
+      </div>
+    </header>
+    <p class="intro">Choose the area that matches your role.</p>
+    <nav class="role-grid" aria-label="Product areas">
+      <a class="role-card" href="{{ url_for('elder') }}"><strong>Elder</strong><span>Report how you are feeling today.</span></a>
+      <a class="role-card" href="{{ url_for('staff') }}"><strong>Care staff</strong><span>Review and confirm resident updates.</span></a>
+      <a class="role-card" href="{{ url_for('family') }}"><strong>Family</strong><span>View confirmed status reports.</span></a>
+      <a class="role-card" href="{{ url_for('admin') }}"><strong>Institution</strong><span>See the institution and resident overview.</span></a>
+    </nav>
+  </main>
+</body>
+</html>

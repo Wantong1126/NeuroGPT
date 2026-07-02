@@ -13,6 +13,10 @@ body {
   margin: 0;
 }
 
+a {
+  color: #155e75;
+}
+
 .shell {
   width: min(960px, 100%);
   margin: 0 auto;
@@ -37,6 +41,66 @@ h1 {
   margin: 0;
   font-size: clamp(1.8rem, 5vw, 2.5rem);
   line-height: 1.1;
+}
+
+.intro {
+  max-width: 680px;
+  margin: 0 0 24px;
+  color: #44505c;
+  font-size: 1.12rem;
+  line-height: 1.6;
+}
+
+.back-link {
+  display: inline-block;
+  margin-bottom: 24px;
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.role-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.role-card {
+  display: grid;
+  gap: 8px;
+  min-height: 140px;
+  padding: 22px;
+  border: 1px solid #d8dee5;
+  border-radius: 10px;
+  background: white;
+  color: #17202a;
+  text-decoration: none;
+}
+
+.role-card strong {
+  color: #155e75;
+  font-size: 1.25rem;
+}
+
+.role-card span {
+  line-height: 1.5;
+}
+
+.empty-state {
+  padding: 32px;
+  border: 1px solid #d8dee5;
+  border-radius: 10px;
+  background: white;
+}
+
+.empty-state h2,
+.empty-state p {
+  margin: 0;
+}
+
+.empty-state p {
+  margin-top: 8px;
+  color: #53606d;
+  line-height: 1.5;
 }
 
 button {
@@ -162,6 +226,10 @@ button.secondary {
   background: #f6f7f9;
 }
 
+.reset-form {
+  margin-top: 14px;
+}
+
 .composer label {
   display: block;
   margin-bottom: 8px;
@@ -187,7 +255,8 @@ textarea {
 
 @media (max-width: 640px) {
   .page-header,
-  .input-row {
+  .input-row,
+  .role-grid {
     grid-template-columns: 1fr;
     display: grid;
   }

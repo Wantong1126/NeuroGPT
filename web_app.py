@@ -1,5 +1,5 @@
 ﻿# SPDX-License-Identifier: MIT
-"""Flask entrypoint for NeuroGPT demo UI."""
+"""Flask entrypoint for the NeuroGPT v1 web product."""
 from __future__ import annotations
 
 import os

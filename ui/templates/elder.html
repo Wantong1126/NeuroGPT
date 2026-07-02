@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Elder check-in | NeuroGPT</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+</head>
+<body>
+  <main class="shell elder-shell">
+    <a class="back-link" href="{{ url_for('home') }}">← Home</a>
+    <header class="page-header">
+      <div>
+        <p class="eyebrow">Elder check-in</p>
+        <h1>How are you feeling today?</h1>
+      </div>
+    </header>
+    <p class="intro">Describe any change, discomfort, or concern in your own words.</p>
+
+    {% if messages %}
+      <section class="transcript" aria-label="Your check-in conversation">
+        {% for message in messages %}
+          <article class="turn {{ 'user-turn' if message.role == 'user' else 'assistant-turn' }}">
+            <div class="turn-label">{{ 'You' if message.role == 'user' else 'NeuroGPT' }}</div>
+            <div class="turn-body">{{ message.content }}</div>
+          </article>
+        {% endfor %}
+      </section>
+    {% endif %}
+
+    <form class="composer" method="post" action="{{ url_for('elder_report') }}">
+      <label for="user_input">{{ 'Your answer' if needs_follow_up else 'Your update' }}</label>
+      <div class="input-row">
+        <textarea id="user_input" name="user_input" required placeholder="For example: My left hand feels weaker today"></textarea>
+        <button type="submit">Send update</button>
+      </div>
+    </form>
+    <form class="reset-form" method="post" action="{{ url_for('reset') }}">
+      <button class="secondary" type="submit">Start a new check-in</button>
+    </form>
+  </main>
+</body>
+</html>
