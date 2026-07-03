@@ -76,7 +76,7 @@ def test_ambiguous_one_sided_sensory_complaint_asks_one_question() -> None:
 
     assert output.action_level != "emergency_now"
     assert output.needs_follow_up_question is True
-    assert "接下来请告诉我" in output.user_message
+    assert "请您再告诉我：" in output.user_message
     assert "【我只需要先确认这一点】" not in output.user_message
     assert "【为什么要问】" not in output.user_message
     assert "现在不把它说成诊断" not in output.user_message
@@ -95,7 +95,7 @@ def test_mild_transient_symptom_uses_monitor_safety_net_style() -> None:
 
     assert output.action_level == "monitor"
     assert output.needs_follow_up_question is False
-    assert "目前没有听到需要立即急救的表现" in output.user_message
+    assert "如果情况加重或出现新的不舒服，请马上叫护理员" in output.user_message
     assert "如果加重应尽快就医" in output.user_message or "需要升级处理" in output.user_message
     assert "立即拨打" not in output.user_message
     assert_caregiver_summary_exists(output)
@@ -111,7 +111,7 @@ def test_chronic_progressive_memory_concern_encourages_clinical_review() -> None
     assert output.action_level == "prompt_clinical_review"
     assert output.needs_follow_up_question is False
     assert output.action_level != "emergency_now"
-    assert "这个情况建议让护理员知道一下" in output.user_message
+    assert "建议尽快预约医生评估" in output.user_message
     assert "尽快" in output.user_message
     assert "记忆" in output.user_message or "认知" in output.user_message
     assert_caregiver_summary_exists(output)

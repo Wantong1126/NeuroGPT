@@ -5,3 +5,8 @@
 
 summary_generator:
   provider: heuristic
+
+elder_explanation_generator:
+  provider: openai_compatible
+  base_url: https://api.deepseek.com/v1
+  model: deepseek-v4-pro

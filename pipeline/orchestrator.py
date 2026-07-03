@@ -13,6 +13,10 @@ from core.types import (
 )
 from modules.action_mapper import map_to_action
 from modules.concern_estimator import estimate_concern
+from modules.elder_explanation_generator import (
+    format_elder_explanation,
+    generate_elder_explanation,
+)
 from modules.hesitation_detector import detect_hesitation
 from modules.question_manager import decide_question
 from modules.response_builder import (
@@ -24,6 +28,7 @@ from modules.response_builder import (
     build_response,
 )
 from modules.summary_generator import generate_summary
+from modules.symptom_family_router import route_symptom_family
 from pipeline.multi_turn import merge_turn
 from pipeline.state import new_case
 
@@ -83,12 +88,6 @@ def _format_steps(steps: list[ActionStep]) -> str:
 
 
 
-def _format_clarification(question: str | None) -> str:
-    if not question:
-        return ""
-    return f"接下来请告诉我\n{question}"
-
-
 def _format_guidance(snippets: list[str]) -> str:
     if not snippets:
         return ""
@@ -125,32 +124,6 @@ def _display_step_reason(reason: str) -> str:
     return replacements.get(reason, reason)
 
 
-def _build_assistant_text(
-    empathy: str,
-    key_signs: str,
-    rationale: str,
-    guidance_snippets: list[str],
-    urgency: str,
-    steps: list[ActionStep],
-    clarification_question: str | None = None,
-) -> str:
-    parts = [
-        part.strip()
-        for part in (
-            empathy,
-            key_signs,
-            rationale,
-            _format_guidance(guidance_snippets),
-            urgency,
-            _format_clarification(clarification_question),
-            _format_steps(steps),
-        )
-        if part and part.strip()
-    ]
-    return "\n\n".join(parts)
-
-
-
 def run_pipeline(session_id: str, user_input: str, state: CaseState | None = None):
     """Run the end-to-end pipeline for a single user turn."""
     if state is None:
@@ -158,21 +131,20 @@ def run_pipeline(session_id: str, user_input: str, state: CaseState | None = Non
 
     state = merge_turn(state, user_input)
     state.hesitation_flags = detect_hesitation(state)
+    symptom_family = route_symptom_family(state.raw_user_input)
 
     question = decide_question(state)
     if question:
         state.needs_follow_up_question = True
         state.follow_up_question = question
         elder_response = build_clarification_response(state, question)
-        assistant_text = _build_assistant_text(
-            elder_response.empathy_statement,
-            elder_response.key_signs_summary,
-            elder_response.what_this_means,
-            elder_response.guidance_snippets,
-            elder_response.urgency_statement,
-            elder_response.action_steps,
-            elder_response.clarification_question,
+        explanation = generate_elder_explanation(
+            state,
+            symptom_family,
+            state.action_level.value,
+            question,
         )
+        assistant_text = format_elder_explanation(explanation)
         state.user_message = assistant_text
         state.caregiver_summary = elder_response.caregiver_summary
         state.add_assistant_message(assistant_text)
@@ -201,14 +173,18 @@ def run_pipeline(session_id: str, user_input: str, state: CaseState | None = Non
         state.action_level = concern.risk_assessment.action
 
     elder_response = build_response(state)
-    assistant_text = _build_assistant_text(
-        elder_response.empathy_statement,
+    explanation = generate_elder_explanation(
+        state,
+        symptom_family,
+        state.action_level.value,
+        None,
+    )
+    assistant_text = _build_explained_action_text(
+        format_elder_explanation(explanation),
         elder_response.key_signs_summary,
-        elder_response.what_this_means,
         elder_response.guidance_snippets,
         elder_response.urgency_statement,
         elder_response.action_steps,
-        elder_response.clarification_question,
     )
     state.user_message = assistant_text
     state.add_assistant_message(assistant_text)
@@ -227,6 +203,23 @@ def run_pipeline(session_id: str, user_input: str, state: CaseState | None = Non
         disclaimer=elder_response.disclaimer,
     )
     return state, output
+
+
+def _build_explained_action_text(
+    explanation: str,
+    key_signs: str,
+    guidance_snippets: list[str],
+    urgency: str,
+    steps: list[ActionStep],
+) -> str:
+    parts = [
+        explanation,
+        key_signs,
+        _format_guidance(guidance_snippets),
+        urgency,
+        _format_steps(steps),
+    ]
+    return "\n\n".join(part.strip() for part in parts if part and part.strip())
 
 
 def to_mvp_response_payload(state: CaseState, output: PipelineOutput) -> MVPResponsePayload:

@@ -40,6 +40,12 @@ def test_symptom_extractor_resolves_deepseek_provider_config() -> None:
     assert get_provider_model("symptom_extractor") == "deepseek-v4-pro"
 
 
+def test_elder_explanation_resolves_deepseek_provider_config() -> None:
+    assert get_provider("elder_explanation_generator") == "openai_compatible"
+    assert get_provider_base_url("elder_explanation_generator") == "https://api.deepseek.com/v1"
+    assert get_provider_model("elder_explanation_generator") == "deepseek-v4-pro"
+
+
 def test_llm_runtime_config_is_non_secret_and_env_overridable(monkeypatch) -> None:
     monkeypatch.setenv("NEUROGPT_LLM_API_KEY", "secret-test-key")
     monkeypatch.setenv("NEUROGPT_LLM_BASE_URL", "https://override.example/v1")

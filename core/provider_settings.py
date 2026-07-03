@@ -13,6 +13,11 @@ DEFAULT_PROVIDER_CONFIG = {
         "model": "",
     },
     "summary_generator": {"provider": "heuristic"},
+    "elder_explanation_generator": {
+        "provider": "heuristic",
+        "base_url": "",
+        "model": "",
+    },
 }
 
 
