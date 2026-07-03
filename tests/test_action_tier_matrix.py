@@ -18,8 +18,8 @@ def test_vague_weakness_asks_missing_onset_or_laterality_followup() -> None:
     _state, output = run_text("老人最近没力")
 
     assert output.needs_follow_up_question is True
-    assert "什么时候" in (output.follow_up_question or "")
-    assert "一侧" in (output.follow_up_question or "")
+    assert "一边还是两边" in (output.follow_up_question or "")
+    assert "突然出现" in (output.follow_up_question or "")
     assert output.action_level != "emergency_now"
 
 
@@ -167,8 +167,8 @@ def test_right_hand_weakness_asks_timing_context_not_emergency() -> None:
     _state, output = run_text("右手没力")
 
     assert output.needs_follow_up_question is True
-    assert "什么时候" in (output.follow_up_question or "")
-    assert "持续了多久" in (output.follow_up_question or "")
+    assert "一边还是两边" in (output.follow_up_question or "")
+    assert "说话不清" in (output.follow_up_question or "")
     assert output.action_level != "emergency_now"
 
 

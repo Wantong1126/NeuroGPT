@@ -7,14 +7,14 @@ Decides whether to ask a follow-up question and generates it.
 from __future__ import annotations
 
 from core.types import CaseState, ExtractedSymptoms, Onset, Progression
+from modules.question_planner import plan_follow_up_question
+from modules.symptom_family_router import route_symptom_family
 
 
 SPEECH_ONSET_QUESTION = "这个说话/表达困难是突然出现的吗？大概从什么时候开始？"
 FOCAL_ONSET_QUESTION = "这个症状是突然出现的吗？大概从什么时候开始？持续了多久？是一侧还是两侧？"
 CONFUSION_ONSET_QUESTION = "这种糊涂/意识变化是突然出现的吗？最近有没有加重？"
-GENERAL_ONSET_QUESTION = "这个症状是从什么时候开始的？是突然发生的，还是慢慢出现的？"
 PROGRESSION_QUESTION = "最近这个症状有没有加重？比如更频繁，或者更严重？"
-AMBIGUOUS_OBSERVATION_QUESTION = "您说的这种感觉更像是麻木、没力、动作不灵活，还是感觉变迟钝？大概什么时候开始的？"
 
 
 def _has_speech_language_symptom(symptoms: ExtractedSymptoms) -> bool:
@@ -121,20 +121,24 @@ def decide_question(state: CaseState) -> str | None:
     if _has_immediate_emergency_without_followup(symptoms):
         return None
 
-    if _has_ambiguous_observation(symptoms):
-        return AMBIGUOUS_OBSERVATION_QUESTION
-
     if _has_speech_language_symptom(symptoms) and symptoms.onset == Onset.UNKNOWN:
         return SPEECH_ONSET_QUESTION
 
     if _has_confusion_or_awareness_symptom(symptoms) and symptoms.onset == Onset.UNKNOWN:
         return CONFUSION_ONSET_QUESTION
 
+    routed_family = route_symptom_family(state.raw_user_input)
+    if routed_family != "general_unclear" and _needs_context_question(routed_family, symptoms):
+        return plan_follow_up_question(routed_family)
+
+    if _has_ambiguous_observation(symptoms):
+        return plan_follow_up_question("general_unclear")
+
     if _has_focal_or_stroke_family_symptom(symptoms) and symptoms.onset == Onset.UNKNOWN:
         return FOCAL_ONSET_QUESTION
 
     if symptoms.onset == Onset.UNKNOWN:
-        return GENERAL_ONSET_QUESTION
+        return plan_follow_up_question("general_unclear")
 
     if (
         _has_focal_or_stroke_family_symptom(symptoms)
@@ -152,3 +156,20 @@ def decide_question(state: CaseState) -> str | None:
         return "跌倒时有没有撞到头，或者出现明显受伤？"
 
     return None
+
+
+def _needs_context_question(family: str, symptoms: ExtractedSymptoms) -> bool:
+    """Avoid repeating a family question when structured context is sufficient."""
+    if family == "numbness_or_weakness":
+        needs_laterality = (
+            symptoms.laterality.value == "unknown"
+            and not _should_skip_laterality_question(symptoms)
+        )
+        return (
+            symptoms.onset == Onset.UNKNOWN
+            or symptoms.progression == Progression.UNKNOWN
+            or needs_laterality
+        )
+    if family == "memory_language":
+        return symptoms.onset == Onset.UNKNOWN or symptoms.progression == Progression.UNKNOWN
+    return True
