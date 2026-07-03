@@ -57,7 +57,7 @@ def test_clear_emergency_red_flag_should_not_wait_for_clarification() -> None:
     assert output.action_level == "emergency_now"
     assert output.needs_follow_up_question is False
     assert output.follow_up_question is None
-    assert "【我目前抓到的重点】" in output.user_message
+    assert "我听到的情况" in output.user_message
     assert "【现在怎么做】" in output.user_message
     assert "立即" in output.user_message
     assert "急诊" in output.user_message or "急救" in output.user_message
@@ -76,13 +76,12 @@ def test_ambiguous_one_sided_sensory_complaint_asks_one_question() -> None:
 
     assert output.action_level != "emergency_now"
     assert output.needs_follow_up_question is True
-    assert "【接下来要确认】" in output.user_message
+    assert "接下来请告诉我" in output.user_message
     assert "【我只需要先确认这一点】" not in output.user_message
     assert "【为什么要问】" not in output.user_message
     assert "现在不把它说成诊断" not in output.user_message
     assert_one_question(output.user_message)
-    assert "偏一侧" in output.user_message
-    assert "麻木" in output.user_message
+    assert "我听到您说：my right hand feels weird and numb。" in output.user_message
     assert "立即拨打" not in output.user_message
     assert_caregiver_summary_exists(output)
     assert_no_diagnosis_claim(output.user_message)
@@ -96,8 +95,7 @@ def test_mild_transient_symptom_uses_monitor_safety_net_style() -> None:
 
     assert output.action_level == "monitor"
     assert output.needs_follow_up_question is False
-    assert "【为什么现在先观察】" in output.user_message
-    assert "目前没有识别到明确高风险模式" in output.user_message
+    assert "目前没有听到需要立即急救的表现" in output.user_message
     assert "如果加重应尽快就医" in output.user_message or "需要升级处理" in output.user_message
     assert "立即拨打" not in output.user_message
     assert_caregiver_summary_exists(output)
@@ -113,7 +111,7 @@ def test_chronic_progressive_memory_concern_encourages_clinical_review() -> None
     assert output.action_level == "prompt_clinical_review"
     assert output.needs_follow_up_question is False
     assert output.action_level != "emergency_now"
-    assert "【需要重视】" in output.user_message
+    assert "这个情况建议让护理员知道一下" in output.user_message
     assert "尽快" in output.user_message
     assert "记忆" in output.user_message or "认知" in output.user_message
     assert_caregiver_summary_exists(output)
@@ -183,7 +181,7 @@ def test_llm_success_augments_observations_without_controlling_action(monkeypatc
     assert state.symptoms_detected.llm_observation_count > 0
     assert any(obs.symptom_family == "sensory" for obs in state.symptoms_detected.observations)
     assert output.action_level != "emergency_now"
-    assert "麻木" in output.user_message or "感觉异常" in output.user_message
+    assert "我听到您说：right hand feels wrapped。" in output.user_message
     assert "action_level" not in output.user_message
     assert "concern_level" not in output.user_message
     assert_no_diagnosis_claim(output.user_message)
@@ -210,7 +208,7 @@ def test_multi_turn_clarification_flow_updates_action_and_metadata() -> None:
     assert state.symptoms_detected.onset.value == "sudden"
     assert second_output.needs_follow_up_question is False
     assert second_output.action_level == "emergency_now"
-    assert "【我目前抓到的重点】" in second_output.user_message
+    assert "我听到的情况" in second_output.user_message
     assert_caregiver_summary_exists(second_output)
     assert state.symptoms_detected.llm_observation_count == 0
     assert state.symptoms_detected.deterministic_observation_count == 1

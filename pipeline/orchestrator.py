@@ -86,22 +86,23 @@ def _format_steps(steps: list[ActionStep]) -> str:
 def _format_clarification(question: str | None) -> str:
     if not question:
         return ""
-    return f"【接下来要确认】\n{question}"
-
-
-def _format_caregiver_summary(summary: str) -> str:
-    if not summary:
-        return ""
-    clean_summary = summary.removeprefix("给家属/医生：")
-    return f"【给家属/医生的话】\n{clean_summary}"
+    return f"接下来请告诉我\n{question}"
 
 
 def _format_guidance(snippets: list[str]) -> str:
     if not snippets:
         return ""
-    lines = ["【专业依据提示】"]
-    lines.extend(snippets[:1])
+    lines = ["为什么要关注"]
+    lines.extend(_display_guidance(snippet) for snippet in snippets[:1])
     return "\n".join(lines)
+
+
+def _display_guidance(snippet: str) -> str:
+    replacements = {
+        "这些突然出现的神经系统变化属于高风险警讯。现在先不要判断原因，重点是尽快让医生评估。":
+            "这些变化是突然出现的，需要尽快让医护人员看一下。",
+    }
+    return replacements.get(snippet, snippet)
 
 
 def _display_step_action(action: str) -> str:
@@ -116,6 +117,10 @@ def _display_step_reason(reason: str) -> str:
     replacements = {
         "当前症状提示可能存在急性神经系统风险。": "需要尽快让医生评估。",
         "当前症状符合高风险神经系统警讯，时间很重要。": "需要尽快让医生评估。",
+        "急诊评估会高度依赖起病时间。": "告诉医护人员什么时候开始不舒服，会帮助他们更快了解情况。",
+        "症状需要较快的专业判断。": "需要尽快请医护人员看一下。",
+        "症状需要专业评估，但目前未见急救级别红旗。": "需要请医护人员看一下，同时留意有没有加重。",
+        "如果出现新红旗或明显加重，需要升级处理。": "如果出现新的不舒服或明显加重，请马上告诉护理员。",
     }
     return replacements.get(reason, reason)
 
@@ -128,7 +133,6 @@ def _build_assistant_text(
     urgency: str,
     steps: list[ActionStep],
     clarification_question: str | None = None,
-    caregiver_summary: str = "",
 ) -> str:
     parts = [
         part.strip()
@@ -140,7 +144,6 @@ def _build_assistant_text(
             urgency,
             _format_clarification(clarification_question),
             _format_steps(steps),
-            _format_caregiver_summary(caregiver_summary),
         )
         if part and part.strip()
     ]
@@ -169,7 +172,6 @@ def run_pipeline(session_id: str, user_input: str, state: CaseState | None = Non
             elder_response.urgency_statement,
             elder_response.action_steps,
             elder_response.clarification_question,
-            elder_response.caregiver_summary,
         )
         state.user_message = assistant_text
         state.caregiver_summary = elder_response.caregiver_summary
@@ -207,7 +209,6 @@ def run_pipeline(session_id: str, user_input: str, state: CaseState | None = Non
         elder_response.urgency_statement,
         elder_response.action_steps,
         elder_response.clarification_question,
-        elder_response.caregiver_summary,
     )
     state.user_message = assistant_text
     state.add_assistant_message(assistant_text)

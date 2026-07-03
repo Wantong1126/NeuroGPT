@@ -49,10 +49,10 @@ def test_emergency_response_includes_serious_framing_and_immediate_action() -> N
 
     assert output.action_level == "emergency_now"
     assert output.needs_follow_up_question is False
-    assert "【我目前抓到的重点】" in output.user_message
-    assert "【为什么要马上动】" in output.user_message
+    assert "我听到的情况" in output.user_message
+    assert "这个情况需要尽快让护理员/医护人员过来看一下" in output.user_message
     assert "【现在怎么做】" in output.user_message
-    assert "不建议继续观察" in output.user_message
+    assert "需要尽快让护理员/医护人员过来看一下" in output.user_message
     assert "急诊" in output.user_message or "急救" in output.user_message
     assert_no_overclaiming(output.user_message)
 
@@ -76,8 +76,7 @@ def test_monitor_response_does_not_overmedicalize() -> None:
     )
 
     assert output.action_level != "emergency_now"
-    assert "【为什么现在先观察】" in output.user_message
-    assert "目前没有识别到明确高风险模式" in output.user_message
+    assert "目前没有听到需要立即急救的表现" in output.user_message
     assert "立即拨打" not in output.user_message
     assert "高风险警讯" not in output.user_message
     assert_no_overclaiming(output.user_message)
@@ -101,7 +100,7 @@ def test_key_understood_signs_are_summarized_from_observations() -> None:
 
     summary = build_key_signs_summary(state)
 
-    assert summary.startswith("【我目前抓到的重点】")
+    assert summary.startswith("我听到的情况\n")
     assert "偏一侧" in summary
     assert "无力" in summary
     assert "突然出现" in summary
@@ -121,9 +120,9 @@ def test_pipeline_surfaces_one_clarification_question_when_needed() -> None:
     _state, output = run_pipeline("response-one-question", "right hand weak")
 
     assert output.needs_follow_up_question is True
-    assert "【接下来要确认】" in output.user_message
+    assert "接下来请告诉我" in output.user_message
     assert_no_developer_clarification_wording(output.user_message)
-    question_section = output.user_message.split("【接下来要确认】", 1)[1]
+    question_section = output.user_message.split("接下来请告诉我", 1)[1]
     assert question_section.count("？") + question_section.count("?") == 1
 
 
@@ -213,9 +212,11 @@ def test_patient_facing_clarification_uses_natural_uncertainty_wording() -> None
     )
 
     assert output.needs_follow_up_question is True
-    assert "现在不能只凭这些信息判断具体原因" in output.user_message
-    assert "这个问题是为了判断是否需要更快就医" in output.user_message
-    assert "【接下来要确认】" in output.user_message
+    assert "我听到您说：my right hand feels weird and numb。" in output.user_message
+    assert "为了让护理员更好判断情况，请您再告诉我：" in output.user_message
+    assert "接下来请告诉我" in output.user_message
+    assert "【给家属/医生的话】" not in output.user_message
+    assert "给家属/医生：" not in output.user_message
     assert_no_developer_clarification_wording(output.user_message)
 
 
@@ -225,9 +226,9 @@ def test_rich_lay_description_keeps_directly_present_symptom_details() -> None:
 
     assert "眼前发黑" in output.user_message
     assert "头晕" in output.user_message
-    assert "头部沉重" in output.user_message
-    assert "起身或坐起后出现" in output.user_message
-    assert "过一段时间才缓解" in output.user_message
+    assert "头感觉很重" in output.user_message
+    assert "起床坐起身" in output.user_message
+    assert "缓了好久才恢复" in output.user_message
     assert "视力变化突然出现" not in output.user_message
     assert "时间线：" not in (output.caregiver_summary or "")
     assert "老人" in (output.caregiver_summary or "")

@@ -77,7 +77,7 @@ ACTION_LABELS = {
     "educate": "先了解和观察",
 }
 
-KEY_SIGNS_HEADING = "【我目前抓到的重点】"
+KEY_SIGNS_HEADING = "我听到的情况"
 
 
 
@@ -138,8 +138,8 @@ def build_key_signs_summary(state: CaseState) -> str:
             break
 
     if not phrases:
-        return f"{KEY_SIGNS_HEADING}目前没有听到明确的急救级红旗信号。"
-    return f"{KEY_SIGNS_HEADING}{'、'.join(phrases)}。"
+        return f"{KEY_SIGNS_HEADING}\n目前没有听到需要立即急救的表现。"
+    return f"{KEY_SIGNS_HEADING}\n{'、'.join(phrases)}。"
 
 
 def _raw_key_phrases(text: str) -> list[str]:
@@ -261,12 +261,12 @@ def _first_question(question: str) -> str:
 
 def _build_empathy(state: CaseState) -> str:
     if state.concern_level.value == "high":
-        return "【先说结论】这些变化需要现在处理，不建议继续观察。"
+        return "这个情况需要尽快让护理员/医护人员过来看一下。"
     if state.concern_level.value == "moderate":
-        return "【需要重视】这些变化需要尽快让医生评估。"
+        return "这个情况建议让护理员知道一下，先帮您确认有没有加重或其他不舒服。"
     if state.concern_level.value == "low":
-        return "【暂时不属于急救级】目前先观察，但要留意有没有新的变化。"
-    return "【信息还不够】我先确认一个会影响判断的问题。"
+        return "目前可以先留意一下，如果有新的不舒服或情况加重，请及时告诉护理员。"
+    return "我还想再了解一点情况。"
 
 
 
@@ -298,20 +298,25 @@ def _build_meaning(state: CaseState) -> str:
     warning_text = "、".join(warning_signs[:4]) if warning_signs else "目前没有明确急救级红旗"
 
     if state.concern_level.value == "high":
-        return f"【为什么要马上动】我看到的关键变化是：{warning_text}。重点是尽快确认是否存在危险情况。"
+        return f"我听到有{warning_text}，需要尽快请医护人员确认。"
     if state.concern_level.value == "moderate":
-        return "【为什么不能拖】这些变化需要专业评估。现在不适合只等它自己好。"
+        return "这些变化需要护理员或医护人员进一步看一下，不建议一直等它自己好。"
     if state.concern_level.value == "low":
-        return "【为什么现在先观察】目前没有识别到明确高风险模式。请继续观察有没有新变化或加重。"
-    return "【为什么还不能下结论】现在信息还不够，不能直接说没事。"
+        return "目前没有听到需要立即急救的表现，请继续留意有没有新的变化或加重。"
+    return "目前了解的情况还不够，请再告诉我一些细节。"
+
+
+def _heard_report(state: CaseState) -> str:
+    report = (state.raw_user_input or "").strip().rstrip("。.!！")
+    return report or "您有一些不舒服"
 
 
 def build_clarification_response(state: CaseState, question: str) -> ElderResponse:
     """Build a single-question response without changing question selection."""
     return ElderResponse(
-        empathy_statement="还需要补充一个关键信息。",
-        key_signs_summary=build_key_signs_summary(state),
-        what_this_means="现在不能只凭这些信息判断具体原因。这个问题是为了判断是否需要更快就医。",
+        empathy_statement=f"我听到您说：{_heard_report(state)}。",
+        key_signs_summary="",
+        what_this_means="为了让护理员更好判断情况，请您再告诉我：",
         clarification_question=_first_question(question),
         caregiver_summary=build_caregiver_doctor_summary(state),
     )

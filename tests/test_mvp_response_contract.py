@@ -105,7 +105,9 @@ def test_ambiguous_contract_has_exactly_one_follow_up_question() -> None:
     assert payload.needs_follow_up_question is True
     assert payload.follow_up_question
     assert payload.follow_up_question.count("？") + payload.follow_up_question.count("?") == 1
-    assert payload.user_message.count("【接下来要确认】") == 1
+    assert payload.user_message.count("接下来请告诉我") == 1
+    assert "为了让护理员更好判断情况，请您再告诉我：" in payload.user_message
+    assert "给家属/医生" not in payload.user_message
     assert "【我只需要先确认这一点】" not in payload.user_message
     assert "【为什么要问】" not in payload.user_message
     assert "现在不把它说成诊断" not in payload.user_message

@@ -45,8 +45,8 @@ def test_stroke_emergency_attaches_source_backed_guidance() -> None:
     assert output.action_level == "emergency_now"
     assert "stroke_red_flags" in card_ids(state)
     assert output.guidance_snippets
-    assert "【专业依据提示】" in output.user_message
-    assert "高风险警讯" in output.user_message
+    assert "为什么要关注" in output.user_message
+    assert "这些变化是突然出现的，需要尽快让医护人员看一下" in output.user_message
     assert_no_diagnostic_claims(output.user_message)
     assert_no_source_urls(output.user_message)
 
@@ -116,7 +116,7 @@ def test_monitor_ambiguous_sensory_case_does_not_attach_stroke_guidance() -> Non
 
     assert output.action_level != "emergency_now"
     assert "stroke_red_flags" not in card_ids(state)
-    assert "【专业依据提示】" not in output.user_message
+    assert "为什么要关注" not in output.user_message
 
 
 def test_guidance_does_not_change_action_level() -> None:
@@ -158,6 +158,6 @@ def test_rendered_guidance_is_kept_short_when_multiple_cards_match() -> None:
 
     assert output.action_level == "emergency_now"
     assert len(output.guidance_snippets) >= 2
-    guidance_section = output.user_message.split("【专业依据提示】", 1)[1].split("\n\n", 1)[0]
+    guidance_section = output.user_message.split("为什么要关注", 1)[1].split("\n\n", 1)[0]
     assert guidance_section.strip().count("\n") == 0
     assert_no_diagnostic_claims(guidance_section)
