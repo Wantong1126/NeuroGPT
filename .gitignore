@@ -11,6 +11,7 @@ htmlcov/
 
 .pytest_tmp/
 .sessions/
+.product_data/
 .env
 *.env
 .codex/.env

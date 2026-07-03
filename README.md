@@ -46,11 +46,14 @@ Open `http://127.0.0.1:5000/`.
 
 Flask stores the current session identifier in the signed browser cookie. The corresponding `CaseState` is stored as JSON in `.sessions/`. Each elder report loads that state, passes the new input through `run_pipeline()`, and saves the updated state for follow-up turns.
 
+Resident and care-event product records are stored separately under `.product_data/`. The file-backed interface in `core/product_store.py` keeps product workflow storage independent from pipeline session state and can later be replaced by a database-backed implementation.
+
 Key implementation files:
 
 - `web_app.py` — Flask entrypoint
 - `ui/web.py` — product routes
 - `core/session.py` — file-backed session persistence
+- `core/product_store.py` — resident and care-event storage
 - `pipeline/orchestrator.py` — shared pipeline entrypoint
 
 ## Tests

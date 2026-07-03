@@ -1,12 +1,14 @@
 ﻿# SPDX-License-Identifier: MIT
 from __future__ import annotations
 
+from core import product_store
 from core.session import delete_session, load_session
 from ui.web import create_app
 
 
 
-def test_product_routes_load() -> None:
+def test_product_routes_load(monkeypatch, tmp_path) -> None:
+    monkeypatch.setattr(product_store, "PRODUCT_DATA_DIR", tmp_path / ".product_data")
     app = create_app()
     app.config["TESTING"] = True
     client = app.test_client()
@@ -21,7 +23,8 @@ def test_product_routes_load() -> None:
 
 
 
-def test_flask_route_persists_case_state_across_requests() -> None:
+def test_flask_route_persists_case_state_across_requests(monkeypatch, tmp_path) -> None:
+    monkeypatch.setattr(product_store, "PRODUCT_DATA_DIR", tmp_path / ".product_data")
     app = create_app()
     app.config["TESTING"] = True
     client = app.test_client()
@@ -48,10 +51,17 @@ def test_flask_route_persists_case_state_across_requests() -> None:
     assert state_after_turn_two.symptoms_detected.red_flags.slurred_speech is True
     assert state_after_turn_two.symptoms_detected.red_flags.weakness_one_side is True
 
+    resident = product_store.get_demo_resident()
+    events = product_store.list_events_for_resident(resident.resident_id)
+    assert len(events) == 2
+    assert all(event.case_session_id == session_id for event in events)
+    assert events[0].raw_report == "started suddenly this morning with slurred speech"
+
     delete_session(session_id)
 
 
-def test_reset_replaces_current_elder_session() -> None:
+def test_reset_replaces_current_elder_session(monkeypatch, tmp_path) -> None:
+    monkeypatch.setattr(product_store, "PRODUCT_DATA_DIR", tmp_path / ".product_data")
     app = create_app()
     app.config["TESTING"] = True
     client = app.test_client()

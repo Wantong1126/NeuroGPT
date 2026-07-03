@@ -7,6 +7,11 @@ from typing import Any
 
 from flask import Flask, redirect, render_template, request, session, url_for
 
+from core.product_store import (
+    create_care_event_from_state,
+    get_demo_resident,
+    get_latest_event_for_resident,
+)
 from core.session import create_session, delete_session, load_session, save_session
 from core.types import CaseState
 from pipeline.orchestrator import run_pipeline
@@ -34,19 +39,21 @@ def create_app() -> Flask:
         if user_input:
             state, _output = run_pipeline(state.session_id, user_input, state)
             save_session(state)
+            resident = get_demo_resident()
+            create_care_event_from_state(state, resident.resident_id, user_input)
         return render_template("elder.html", **_build_elder_view_model(state))
 
     @app.get("/staff")
     def staff() -> str:
-        return render_template("staff.html")
+        return render_template("staff.html", **_build_product_view_model())
 
     @app.get("/family")
     def family() -> str:
-        return render_template("family.html")
+        return render_template("family.html", **_build_product_view_model())
 
     @app.get("/admin")
     def admin() -> str:
-        return render_template("admin.html")
+        return render_template("admin.html", **_build_product_view_model())
 
     @app.post("/reset")
     def reset() -> Any:
@@ -77,4 +84,12 @@ def _build_elder_view_model(state: CaseState) -> dict[str, Any]:
         "messages": [message.model_dump() for message in state.conversation_history],
         "assistant_output": state.user_message,
         "needs_follow_up": state.needs_follow_up_question,
+    }
+
+
+def _build_product_view_model() -> dict[str, Any]:
+    resident = get_demo_resident()
+    return {
+        "resident": resident,
+        "latest_event": get_latest_event_for_resident(resident.resident_id),
     }

@@ -10,7 +10,11 @@
   <main class="shell">
     <a class="back-link" href="{{ url_for('home') }}">← Home</a>
     <header class="page-header"><div><p class="eyebrow">Family</p><h1>Confirmed status reports</h1></div></header>
-    <section class="empty-state"><h2>No confirmed reports yet</h2><p>Updates will appear here after care staff confirmation.</p></section>
+    {% if latest_event and latest_event.family_report_ready %}
+      <section class="empty-state"><h2>{{ resident.name }} · Latest update</h2><p>{{ latest_event.caregiver_summary }}</p></section>
+    {% else %}
+      <section class="empty-state"><h2>No confirmed reports yet</h2><p>Updates will appear here after care staff confirmation.</p></section>
+    {% endif %}
   </main>
 </body>
 </html>

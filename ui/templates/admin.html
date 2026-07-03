@@ -10,7 +10,10 @@
   <main class="shell">
     <a class="back-link" href="{{ url_for('home') }}">← Home</a>
     <header class="page-header"><div><p class="eyebrow">Institution</p><h1>Resident overview</h1></div></header>
-    <section class="empty-state"><h2>No resident activity to display</h2><p>Institution-level resident tracking will appear here.</p></section>
+    <section class="empty-state">
+      <h2>{{ resident.name }} · {{ resident.room }}</h2>
+      <p>{{ resident.institution_name }}{% if latest_event %} · Latest update received{% else %} · No activity yet{% endif %}</p>
+    </section>
   </main>
 </body>
 </html>
