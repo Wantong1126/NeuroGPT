@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from core import product_store
 from core.session import delete_session, load_session
+from core.types import CaseState
 from ui.web import create_app
 
 
@@ -39,6 +40,46 @@ def test_chinese_is_the_default_product_language(monkeypatch, tmp_path) -> None:
     assert "继续告诉我" in elder_page
     assert "提交" in elder_page
     assert "/elder?lang=en" in elder_page
+
+
+def test_admin_page_shows_resident_event_and_workflow_summary(monkeypatch, tmp_path) -> None:
+    monkeypatch.setattr(product_store, "PRODUCT_DATA_DIR", tmp_path / ".product_data")
+    resident = product_store.get_demo_resident()
+    pending_event = product_store.create_care_event_from_state(
+        CaseState(session_id="admin-pending"),
+        resident.resident_id,
+        "昨晚没有睡好。",
+    )
+    confirmed_event = product_store.create_care_event_from_state(
+        CaseState(session_id="admin-confirmed", caregiver_summary="今天需要继续关注睡眠。"),
+        resident.resident_id,
+        "今天走路比平时慢一些。",
+    )
+    product_store.update_event_staff_status(
+        confirmed_event.event_id,
+        "confirmed",
+        staff_note="上午已到房间查看，老人精神平稳。",
+    )
+
+    app = create_app()
+    app.config["TESTING"] = True
+    page = app.test_client().get("/admin").get_data(as_text=True)
+
+    assert pending_event.event_id not in page
+    for expected in (
+        "姓名", "王秀兰", "82岁", "性别", "女", "房间/床位", "203床",
+        "示例养老院", "王女士", "关系", "女儿", "睡眠、记忆、行动变化",
+        "老人原话", "今天走路比平时慢一些。", "创建时间", "当前处理状态", "已确认",
+        "是否需要护理员确认", "否", "家属报告状态", "可生成",
+        "护理员备注", "上午已到房间查看，老人精神平稳。",
+        "今日记录", "待确认", "已处理", "家属报告可生成",
+    ):
+        assert expected in page
+
+    assert '<strong>2</strong>' in page
+    assert page.count('<strong>1</strong>') == 3
+    for internal_field in ("pending_confirmation", "case_session_id", "action_level", "concern_level", "provider"):
+        assert internal_field not in page
 
 
 

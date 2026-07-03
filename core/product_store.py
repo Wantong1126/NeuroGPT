@@ -65,7 +65,11 @@ def get_demo_resident() -> Resident:
     """Return the seeded demo resident, creating its record when needed."""
     path = _record_path(_residents_dir(), DEMO_RESIDENT_ID)
     if path.exists():
-        return Resident.model_validate_json(path.read_text(encoding="utf-8"))
+        resident = Resident.model_validate_json(path.read_text(encoding="utf-8"))
+        if resident.family_relationship == "家属":
+            resident.family_relationship = "女儿"
+            _write_record(path, resident)
+        return resident
 
     resident = Resident(
         resident_id=DEMO_RESIDENT_ID,
@@ -75,7 +79,7 @@ def get_demo_resident() -> Resident:
         room="203床",
         institution_name="示例养老院",
         family_contact_name="王女士",
-        family_relationship="家属",
+        family_relationship="女儿",
         care_focus=["睡眠", "记忆", "行动变化"],
     )
     _write_record(path, resident)

@@ -3,20 +3,32 @@
 from __future__ import annotations
 
 import os
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from flask import Flask, redirect, render_template, request, session, url_for
 
 from core.product_store import (
+    CareEvent,
     create_care_event_from_state,
     get_demo_resident,
     get_latest_event_for_resident,
+    list_events_for_resident,
 )
 from core.session import create_session, delete_session, load_session, save_session
 from core.types import CaseState
 from pipeline.orchestrator import run_pipeline
 
 SESSION_KEY = "neurogpt_session_id"
+CHINA_TIMEZONE = timezone(timedelta(hours=8))
+
+STAFF_STATUS_LABELS = {
+    "pending_confirmation": "待护理员确认",
+    "confirmed": "已确认",
+    "monitoring": "持续关注",
+    "family_contacted": "已联系家属",
+    "offline_handled": "已线下处理",
+}
 
 
 def create_app() -> Flask:
@@ -53,7 +65,7 @@ def create_app() -> Flask:
 
     @app.get("/admin")
     def admin() -> str:
-        return render_template("admin.html", **_build_product_view_model())
+        return render_template("admin.html", **_build_admin_view_model())
 
     @app.post("/reset")
     def reset() -> Any:
@@ -93,3 +105,57 @@ def _build_product_view_model() -> dict[str, Any]:
         "resident": resident,
         "latest_event": get_latest_event_for_resident(resident.resident_id),
     }
+
+
+def _build_admin_view_model() -> dict[str, Any]:
+    resident = get_demo_resident()
+    events = list_events_for_resident(resident.resident_id)
+    latest_event = events[0] if events else None
+    today = datetime.now(CHINA_TIMEZONE).date()
+    pending_count = sum(event.staff_status.value == "pending_confirmation" for event in events)
+    handled_count = len(events) - pending_count
+    family_ready_count = sum(
+        event.family_report_ready and event.staff_status.value != "family_contacted"
+        for event in events
+    )
+
+    return {
+        "resident": resident,
+        "latest_event": _event_view_model(latest_event) if latest_event else None,
+        "summary": {
+            "today": sum(_event_local_date(event.created_at) == today for event in events),
+            "pending": pending_count,
+            "handled": handled_count,
+            "family_ready": family_ready_count,
+        },
+    }
+
+
+def _event_view_model(event: CareEvent) -> dict[str, Any]:
+    status = event.staff_status.value
+    return {
+        "raw_report": event.raw_report,
+        "created_at": _as_china_datetime(event.created_at).strftime("%Y年%m月%d日 %H:%M"),
+        "staff_status": STAFF_STATUS_LABELS[status],
+        "needs_staff_confirmation": "是" if status == "pending_confirmation" else "否",
+        "family_report_status": _family_report_status(event),
+        "staff_note": event.staff_note,
+    }
+
+
+def _event_local_date(created_at: datetime):
+    return _as_china_datetime(created_at).date()
+
+
+def _as_china_datetime(created_at: datetime) -> datetime:
+    if created_at.tzinfo is None:
+        created_at = created_at.replace(tzinfo=timezone.utc)
+    return created_at.astimezone(CHINA_TIMEZONE)
+
+
+def _family_report_status(event: CareEvent) -> str:
+    if event.staff_status.value == "family_contacted":
+        return "已生成"
+    if event.family_report_ready:
+        return "可生成"
+    return "待护理确认"

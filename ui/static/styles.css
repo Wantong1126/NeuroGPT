@@ -116,6 +116,103 @@ h1 {
   margin: 0;
 }
 
+.summary-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+  margin: 22px 0;
+}
+
+.summary-card,
+.admin-card {
+  border: 1px solid #d8dee5;
+  border-radius: 10px;
+  background: white;
+}
+
+.summary-card {
+  display: grid;
+  gap: 10px;
+  padding: 18px;
+  color: #53606d;
+}
+
+.summary-card strong {
+  color: #155e75;
+  font-size: 1.8rem;
+}
+
+.admin-card {
+  margin-top: 16px;
+  padding: 22px;
+}
+
+.admin-card h2 {
+  margin: 0 0 18px;
+  font-size: 1.2rem;
+}
+
+.detail-grid,
+.event-details {
+  margin: 0;
+}
+
+.detail-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px 28px;
+}
+
+.detail-grid div,
+.event-details div {
+  min-width: 0;
+}
+
+.detail-wide {
+  grid-column: 1 / -1;
+}
+
+.event-details {
+  display: grid;
+  gap: 0;
+}
+
+.event-details div {
+  display: grid;
+  grid-template-columns: 180px minmax(0, 1fr);
+  gap: 16px;
+  padding: 13px 0;
+  border-top: 1px solid #edf0f2;
+}
+
+.event-details div:first-child {
+  padding-top: 0;
+  border-top: 0;
+}
+
+dt {
+  color: #66717d;
+  font-size: 0.92rem;
+}
+
+dd {
+  margin: 4px 0 0;
+  line-height: 1.55;
+}
+
+.event-details dd {
+  margin: 0;
+}
+
+.resident-quote {
+  font-size: 1.08rem;
+}
+
+.empty-copy {
+  margin: 0;
+  color: #66717d;
+}
+
 .empty-state p {
   margin-top: 8px;
   color: #53606d;
@@ -282,5 +379,26 @@ textarea {
 
   button {
     width: 100%;
+  }
+
+  .summary-grid,
+  .detail-grid {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .event-details div {
+    grid-template-columns: 1fr;
+    gap: 4px;
+  }
+}
+
+@media (max-width: 420px) {
+  .summary-grid,
+  .detail-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .detail-wide {
+    grid-column: auto;
   }
 }

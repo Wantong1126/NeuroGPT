@@ -7,12 +7,48 @@
   <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
 </head>
 <body>
-  <main class="shell">
+  <main class="shell admin-shell">
     <a class="back-link" href="{{ url_for('home') }}">← 首页</a>
-    <header class="page-header"><div><p class="eyebrow">机构端</p><h1>老人状态总览</h1></div><nav class="language-toggle" aria-label="语言切换"><a href="{{ url_for('admin', lang='zh') }}" aria-current="page">中文</a><span>|</span><a href="{{ url_for('admin', lang='en') }}">EN</a></nav></header>
-    <section class="empty-state">
-      <h2>{{ resident.name }} · {{ resident.room }}</h2>
-      <p>{{ resident.institution_name }}{% if latest_event %} · 已收到最新记录{% else %} · 暂无状态记录{% endif %}</p>
+    <header class="page-header">
+      <div><p class="eyebrow">机构端</p><h1>老人状态总览</h1></div>
+      <nav class="language-toggle" aria-label="语言切换"><a href="{{ url_for('admin', lang='zh') }}" aria-current="page">中文</a><span>|</span><a href="{{ url_for('admin', lang='en') }}">EN</a></nav>
+    </header>
+
+    <section class="summary-grid" aria-label="记录汇总">
+      <article class="summary-card"><span>今日记录</span><strong>{{ summary.today }}</strong></article>
+      <article class="summary-card"><span>待确认</span><strong>{{ summary.pending }}</strong></article>
+      <article class="summary-card"><span>已处理</span><strong>{{ summary.handled }}</strong></article>
+      <article class="summary-card"><span>家属报告可生成</span><strong>{{ summary.family_ready }}</strong></article>
+    </section>
+
+    <section class="admin-card" aria-labelledby="resident-heading">
+      <h2 id="resident-heading">老人档案</h2>
+      <dl class="detail-grid">
+        <div><dt>姓名</dt><dd>{{ resident.name }}</dd></div>
+        <div><dt>年龄</dt><dd>{{ resident.age }}岁</dd></div>
+        <div><dt>性别</dt><dd>{{ resident.gender }}</dd></div>
+        <div><dt>房间/床位</dt><dd>{{ resident.room }}</dd></div>
+        <div><dt>机构</dt><dd>{{ resident.institution_name }}</dd></div>
+        <div><dt>家属联系人</dt><dd>{{ resident.family_contact_name }}</dd></div>
+        <div><dt>关系</dt><dd>{{ resident.family_relationship }}</dd></div>
+        <div class="detail-wide"><dt>重点关注</dt><dd>{{ resident.care_focus | join('、') }}</dd></div>
+      </dl>
+    </section>
+
+    <section class="admin-card" aria-labelledby="event-heading">
+      <h2 id="event-heading">最新状态记录</h2>
+      {% if latest_event %}
+        <dl class="event-details">
+          <div><dt>老人原话</dt><dd class="resident-quote">“{{ latest_event.raw_report }}”</dd></div>
+          <div><dt>创建时间</dt><dd>{{ latest_event.created_at }}</dd></div>
+          <div><dt>当前处理状态</dt><dd>{{ latest_event.staff_status }}</dd></div>
+          <div><dt>是否需要护理员确认</dt><dd>{{ latest_event.needs_staff_confirmation }}</dd></div>
+          <div><dt>家属报告状态</dt><dd>{{ latest_event.family_report_status }}</dd></div>
+          {% if latest_event.staff_note %}<div><dt>护理员备注</dt><dd>{{ latest_event.staff_note }}</dd></div>{% endif %}
+        </dl>
+      {% else %}
+        <p class="empty-copy">暂无状态记录。</p>
+      {% endif %}
     </section>
   </main>
 </body>

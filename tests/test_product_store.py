@@ -19,6 +19,7 @@ def test_demo_resident_is_seeded_idempotently(monkeypatch, tmp_path) -> None:
     assert resident.name == "王秀兰"
     assert resident.age == 82
     assert resident.room == "203床"
+    assert resident.family_relationship == "女儿"
     assert resident.care_focus == ["睡眠", "记忆", "行动变化"]
 
 
