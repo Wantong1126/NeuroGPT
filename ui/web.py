@@ -15,10 +15,10 @@ from core.product_store import (
     create_care_event_from_state,
     find_resident_by_exact_name,
     get_demo_resident,
+    get_identity_residents,
     get_latest_event_for_resident,
     get_resident,
     list_events_for_resident,
-    list_residents,
 )
 from core.session import create_session, delete_session, load_session, save_session
 from core.types import CaseState
@@ -26,6 +26,7 @@ from pipeline.orchestrator import run_pipeline
 
 SESSION_KEY = "neurogpt_session_id"
 RESIDENT_KEY = "neurogpt_resident_id"
+IDENTITY_NOTICE_KEY = "neurogpt_identity_notice"
 CHINA_TIMEZONE = timezone(timedelta(hours=8))
 
 STAFF_STATUS_LABELS = {
@@ -52,7 +53,17 @@ def create_app() -> Flask:
 
     @app.post("/elder/select")
     def elder_select() -> Any:
-        resident, error = _resolve_resident_selection()
+        if (
+            request.form.get("resident_choice", "").strip() == "new"
+            and not request.form.get("resident_name", "").strip()
+            and request.form.get("identity_step") != "name"
+        ):
+            state = _get_or_create_state()
+            return render_template(
+                "elder.html",
+                **_build_elder_view_model(state, identity_choice="new"),
+            )
+        resident, error, entered_new_name = _resolve_resident_selection()
         if error:
             state = _get_or_create_state()
             return render_template(
@@ -62,10 +73,11 @@ def create_app() -> Flask:
                     identity_error=error,
                     identity_choice=request.form.get("resident_choice", ""),
                     identity_name=request.form.get("resident_name", ""),
-                    identity_room=request.form.get("resident_room", ""),
                 ),
             )
         _select_resident(resident)
+        if entered_new_name:
+            session[IDENTITY_NOTICE_KEY] = "好的，已记录您的姓名。接下来请告诉我哪里不舒服，或者有什么想告诉护理员/家人。"
         return redirect(url_for("elder"))
 
     @app.post("/elder/report")
@@ -80,7 +92,6 @@ def create_app() -> Flask:
                     state,
                     identity_error="请先告诉我您是哪位，这样护理员才能知道要去看谁。",
                     draft_report=user_input,
-                    identity_choice="new",
                 ),
             )
         if user_input:
@@ -131,20 +142,22 @@ def _build_elder_view_model(
     draft_report: str = "",
     identity_choice: str = "",
     identity_name: str = "",
-    identity_room: str = "",
 ) -> dict[str, Any]:
-    get_demo_resident()
+    residents = get_identity_residents()
+    selected_resident = _selected_resident()
+    if selected_resident and all(item.resident_id != selected_resident.resident_id for item in residents):
+        residents.append(selected_resident)
     return {
         "messages": [message.model_dump() for message in state.conversation_history],
         "assistant_output": state.user_message,
         "needs_follow_up": state.needs_follow_up_question,
-        "residents": list_residents(),
-        "selected_resident": _selected_resident(),
+        "residents": residents,
+        "selected_resident": selected_resident,
         "identity_error": identity_error,
+        "identity_notice": session.pop(IDENTITY_NOTICE_KEY, ""),
         "draft_report": draft_report,
         "identity_choice": identity_choice,
         "identity_name": identity_name,
-        "identity_room": identity_room,
     }
 
 
@@ -210,21 +223,20 @@ def _family_report_status(event: CareEvent) -> str:
     return "待护理确认"
 
 
-def _resolve_resident_selection() -> tuple[Resident | None, str]:
+def _resolve_resident_selection() -> tuple[Resident | None, str, bool]:
     choice = request.form.get("resident_choice", "").strip()
     if choice == "new":
         name = request.form.get("resident_name", "").strip()
-        room = request.form.get("resident_room", "").strip()
         if not name:
-            return None, "请告诉我您的姓名。"
-        get_demo_resident()
+            return None, "请填写您的姓名。", True
+        get_identity_residents()
         resident = find_resident_by_exact_name(name)
-        return resident or create_resident(name=name, room=room), ""
+        return resident or create_resident(name=name), "", True
 
     resident = get_resident(choice) if choice else None
     if resident is None:
-        return None, "请选择或填写您的姓名。"
-    return resident, ""
+        return None, "请先选择您的姓名。", False
+    return resident, "", False
 
 
 def _select_resident(resident: Resident | None) -> None:

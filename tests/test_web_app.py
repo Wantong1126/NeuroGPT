@@ -30,6 +30,14 @@ def test_product_routes_load(monkeypatch, tmp_path) -> None:
     assert "请选择您的使用入口" in home_response.get_data(as_text=True)
     assert "中文" in home_response.get_data(as_text=True)
     assert "?lang=en" in home_response.get_data(as_text=True)
+    for label, description in (
+        ("我是老人", "记录今天身体和生活上的变化"),
+        ("我是护理员", "查看并确认老人提交的状态记录"),
+        ("我是家属", "查看护理员确认后的老人近况"),
+        ("我是机构管理者", "查看老人状态总览和处理进度"),
+    ):
+        assert label in home_response.get_data(as_text=True)
+        assert description in home_response.get_data(as_text=True)
 
 
 def test_chinese_is_the_default_product_language(monkeypatch, tmp_path) -> None:
@@ -41,11 +49,30 @@ def test_chinese_is_the_default_product_language(monkeypatch, tmp_path) -> None:
     elder_page = client.get("/elder").get_data(as_text=True)
 
     assert '<html lang="zh-CN">' in elder_page
-    assert "今天哪里不舒服，或者有什么想告诉护理员/家人？" in elder_page
-    assert "可以直接说身体、睡眠、心情、行动、说话、记忆上的变化。" in elder_page
-    assert "继续告诉我" in elder_page
-    assert "提交" in elder_page
+    assert "请先告诉我您是哪位" in elder_page
+    assert "王秀兰" in elder_page
+    assert "李国强" in elder_page
+    assert "张明德" in elder_page
+    assert "我不在列表中" in elder_page
+    assert "房间/床位" not in elder_page
+    assert "请填写您的姓名" not in elder_page
+    assert "resident_name" not in elder_page
+    assert "user_input" not in elder_page
     assert "/elder?lang=en" in elder_page
+
+    _select_demo_resident(client)
+    selected_page = client.get("/elder").get_data(as_text=True)
+    assert "已选择：王秀兰" in selected_page
+    assert "今天哪里不舒服，或者有什么想告诉护理员/家人？" in selected_page
+    assert "请在这里说" in selected_page
+    assert "告诉护理员" in selected_page
+    assert "例如：今天头有点痛，昨晚没睡好。" in selected_page
+    assert "user_input" in selected_page
+    assert "继续告诉我" not in selected_page
+    assert ">提交<" not in selected_page
+    assert "请填写您的姓名" not in selected_page
+    assert "resident_name" not in selected_page
+    assert ">确认身份</button>" not in selected_page
 
 
 def test_admin_page_shows_resident_event_and_workflow_summary(monkeypatch, tmp_path) -> None:
@@ -141,8 +168,12 @@ def test_report_waits_for_resident_identity_before_pipeline(monkeypatch, tmp_pat
     state = load_session(session_id)
 
     assert "请先告诉我您是哪位，这样护理员才能知道要去看谁。" in response.get_data(as_text=True)
-    assert "我今天头晕。" in response.get_data(as_text=True)
-    assert '<div class="new-resident-fields">' in response.get_data(as_text=True)
+    assert "王秀兰" in response.get_data(as_text=True)
+    assert "李国强" in response.get_data(as_text=True)
+    assert "张明德" in response.get_data(as_text=True)
+    assert "我不在列表中" in response.get_data(as_text=True)
+    assert "请填写您的姓名" not in response.get_data(as_text=True)
+    assert "user_input" not in response.get_data(as_text=True)
     assert state is not None
     assert state.conversation_history == []
     assert product_store.list_events_for_resident(product_store.get_demo_resident().resident_id) == []
@@ -155,19 +186,36 @@ def test_new_or_exact_match_resident_receives_report(monkeypatch, tmp_path) -> N
     app.config["TESTING"] = True
     client = app.test_client()
 
+    name_step = client.post(
+        "/elder/select",
+        data={"resident_choice": "new"},
+    )
+    name_step_page = name_step.get_data(as_text=True)
+    assert "请填写您的姓名" in name_step_page
+    assert "例如：刘阿姨" in name_step_page
+    assert "确认身份" in name_step_page
+    assert "已选择：" not in name_step_page
+    assert "user_input" not in name_step_page
+
     missing_name = client.post(
         "/elder/select",
-        data={"resident_choice": "new", "resident_name": "", "resident_room": "206床"},
+        data={"resident_choice": "new", "identity_step": "name", "resident_name": ""},
     )
-    assert "请告诉我您的姓名。" in missing_name.get_data(as_text=True)
+    assert "请填写您的姓名。" in missing_name.get_data(as_text=True)
+    assert "请填写您的姓名" in missing_name.get_data(as_text=True)
+    assert "例如：刘阿姨" in missing_name.get_data(as_text=True)
+    assert "房间/床位" not in missing_name.get_data(as_text=True)
 
     response = client.post(
         "/elder/select",
-        data={"resident_choice": "new", "resident_name": "李桂芳", "resident_room": "999床"},
+        data={"resident_choice": "new", "resident_name": "李桂芳"},
     )
     assert response.status_code == 302
     with client.session_transaction() as flask_session:
         assert flask_session["neurogpt_resident_id"] == existing.resident_id
+
+    identity_page = client.get("/elder").get_data(as_text=True)
+    assert "好的，已记录您的姓名。接下来请告诉我哪里不舒服，或者有什么想告诉护理员/家人。" in identity_page
 
     client.post("/elder/report", data={"user_input": "我昨晚没有睡好。"})
     events = product_store.list_events_for_resident(existing.resident_id)
@@ -197,7 +245,7 @@ def test_switching_resident_starts_a_separate_case_session(monkeypatch, tmp_path
 
     client.post(
         "/elder/select",
-        data={"resident_choice": "new", "resident_name": "赵玉兰", "resident_room": "208床"},
+        data={"resident_choice": "new", "resident_name": "赵玉兰"},
     )
     assert load_session(first_session_id) is None
 
@@ -211,6 +259,7 @@ def test_switching_resident_starts_a_separate_case_session(monkeypatch, tmp_path
     assert second_state is not None
     assert second_state.conversation_history == []
     assert product_store.get_resident(selected_resident_id).name == "赵玉兰"
+    assert product_store.get_resident(selected_resident_id).room == ""
 
 
 def test_reset_replaces_current_elder_session(monkeypatch, tmp_path) -> None:

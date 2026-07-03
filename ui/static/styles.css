@@ -226,54 +226,74 @@ dd {
   font-size: 1.2rem;
 }
 
-.identity-card form,
-.new-resident-fields {
+.identity-card form {
   display: grid;
-  gap: 9px;
+  gap: 12px;
 }
 
-.identity-card form {
+.identity-options {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.identity-name-form {
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: end;
-}
-
-.identity-card form > label,
-.new-resident-fields {
-  grid-column: 1 / -1;
 }
 
 .identity-card label {
   font-weight: 700;
 }
 
-.identity-card select,
 .identity-card input {
   width: 100%;
-  min-height: 44px;
+  min-height: 52px;
   border: 1px solid #c7d0d9;
   border-radius: 8px;
   padding: 10px 12px;
   background: white;
   font: inherit;
+  font-size: 1.08rem;
 }
 
-.new-resident-fields {
-  margin: 6px 0;
-  padding: 14px;
-  border-radius: 8px;
-  background: #f5f7f9;
+.identity-options button {
+  width: 100%;
+  min-height: 58px;
+  font-size: 1.12rem;
+  font-weight: 700;
 }
 
-.new-resident-fields p,
 .selected-resident,
+.identity-notice,
 .identity-error {
   margin: 0;
 }
 
 .selected-resident {
-  margin-bottom: 12px;
+  font-size: 1.16rem;
   color: #155e75;
   font-weight: 700;
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.identity-notice {
+  margin-bottom: 12px;
+  padding: 12px 14px;
+  border-radius: 8px;
+  background: #e8f3ee;
+  color: #183f2d;
+  font-size: 1.05rem;
+  line-height: 1.6;
 }
 
 .identity-error {
@@ -282,6 +302,28 @@ dd {
   border-radius: 8px;
   background: #fff1e8;
   color: #7a3517;
+}
+
+.report-section {
+  margin-top: 28px;
+}
+
+.report-section > h2 {
+  margin: 0 0 10px;
+  font-size: clamp(1.45rem, 4vw, 2rem);
+  line-height: 1.35;
+}
+
+.elder-shell .identity-card button,
+.elder-shell .composer button {
+  min-height: 52px;
+  font-size: 1.08rem;
+  font-weight: 700;
+}
+
+.elder-shell textarea {
+  min-height: 120px;
+  font-size: 1.08rem;
 }
 
 .empty-state p {
@@ -462,7 +504,8 @@ textarea {
     gap: 4px;
   }
 
-  .identity-card form {
+  .identity-options,
+  .identity-name-form {
     grid-template-columns: 1fr;
   }
 }

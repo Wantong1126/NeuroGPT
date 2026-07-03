@@ -10,66 +10,64 @@
   <main class="shell elder-shell">
     <a class="back-link" href="{{ url_for('home') }}">← 首页</a>
     <header class="page-header">
-      <div>
-        <p class="eyebrow">老人状态记录</p>
-        <h1>今天哪里不舒服，或者有什么想告诉护理员/家人？</h1>
-      </div>
+      <div><p class="eyebrow">老人状态记录</p><h1>老人状态记录</h1></div>
       <nav class="language-toggle" aria-label="语言切换"><a href="{{ url_for('elder', lang='zh') }}" aria-current="page">中文</a><span>|</span><a href="{{ url_for('elder', lang='en') }}">EN</a></nav>
     </header>
-    <p class="intro">可以直接说身体、睡眠、心情、行动、说话、记忆上的变化。</p>
 
-    <section class="identity-card" aria-labelledby="identity-heading">
-      <h2 id="identity-heading">请选择/确认您是哪位</h2>
-      {% if selected_resident %}<p class="selected-resident">当前选择：{{ selected_resident.name }}{% if selected_resident.room %} · {{ selected_resident.room }}{% endif %}</p>{% endif %}
-      {% if identity_error %}<p class="identity-error" role="alert">{{ identity_error }}</p>{% endif %}
-      <form method="post" action="{{ url_for('elder_select') }}">
-        <label for="resident_choice">老人姓名</label>
-        <select id="resident_choice" name="resident_choice">
-          <option value="">请选择</option>
+    <section class="identity-card" aria-label="确认身份">
+      {% if selected_resident %}
+        <p class="selected-resident">已选择：{{ selected_resident.name }}</p>
+        {% if identity_notice %}<p class="identity-notice" role="status">{{ identity_notice }}</p>{% endif %}
+      {% elif identity_choice == 'new' %}
+        <h2>请填写您的姓名</h2>
+        {% if identity_error %}<p class="identity-error" role="alert">{{ identity_error }}</p>{% endif %}
+        <form class="identity-name-form" method="post" action="{{ url_for('elder_select') }}">
+          <input type="hidden" name="resident_choice" value="new">
+          <input type="hidden" name="identity_step" value="name">
+          <label class="visually-hidden" for="resident_name">请填写您的姓名</label>
+          <input id="resident_name" name="resident_name" type="text" autocomplete="name" placeholder="例如：刘阿姨" value="{{ identity_name }}" required>
+          <button type="submit">确认身份</button>
+        </form>
+      {% else %}
+        <h2>请先告诉我您是哪位</h2>
+        {% if identity_error %}<p class="identity-error" role="alert">{{ identity_error }}</p>{% endif %}
+        <form class="identity-options" method="post" action="{{ url_for('elder_select') }}">
           {% for resident in residents %}
-            <option value="{{ resident.resident_id }}"{% if not identity_choice and selected_resident and selected_resident.resident_id == resident.resident_id %} selected{% endif %}>{{ resident.name }}{% if resident.room %} {{ resident.room }}{% endif %}</option>
+            <button type="submit" name="resident_choice" value="{{ resident.resident_id }}">{{ resident.name }}</button>
           {% endfor %}
-          <option value="new"{% if identity_choice == 'new' %} selected{% endif %}>我是新老人/不在列表中</option>
-        </select>
-        <div class="new-resident-fields"{% if identity_choice != 'new' %} hidden{% endif %}>
-          <p>如果不在列表中，请填写：</p>
-          <label for="resident_name">姓名</label>
-          <input id="resident_name" name="resident_name" type="text" autocomplete="name" value="{{ identity_name }}">
-          <label for="resident_room">房间/床位（可选）</label>
-          <input id="resident_room" name="resident_room" type="text" placeholder="例如：205床" value="{{ identity_room }}">
-        </div>
-        <button type="submit">确认身份</button>
-      </form>
+          <button class="secondary" type="submit" name="resident_choice" value="new">我不在列表中</button>
+        </form>
+      {% endif %}
     </section>
 
-    {% if messages %}
-      <section class="transcript" aria-label="状态记录对话">
-        {% for message in messages %}
-          <article class="turn {{ 'user-turn' if message.role == 'user' else 'assistant-turn' }}">
-            <div class="turn-label">{{ '我' if message.role == 'user' else 'NeuroGPT' }}</div>
-            <div class="turn-body">{{ message.content }}</div>
-          </article>
-        {% endfor %}
+    {% if selected_resident %}
+      <section class="report-section" aria-labelledby="report-heading">
+        <h2 id="report-heading">今天哪里不舒服，或者有什么想告诉护理员/家人？</h2>
+        <p class="intro">可以直接说身体、睡眠、心情、行动、说话、记忆上的变化。</p>
+
+        {% if messages %}
+          <div class="transcript" aria-label="状态记录对话">
+            {% for message in messages %}
+              <article class="turn {{ 'user-turn' if message.role == 'user' else 'assistant-turn' }}">
+                <div class="turn-label">{{ '我' if message.role == 'user' else 'NeuroGPT' }}</div>
+                <div class="turn-body">{{ message.content }}</div>
+              </article>
+            {% endfor %}
+          </div>
+        {% endif %}
+
+        <form class="composer" method="post" action="{{ url_for('elder_report') }}">
+          <label for="user_input">请在这里说</label>
+          <div class="input-row">
+            <textarea id="user_input" name="user_input" required placeholder="例如：今天头有点痛，昨晚没睡好。">{{ draft_report }}</textarea>
+            <button type="submit">告诉护理员</button>
+          </div>
+        </form>
+        <form class="reset-form" method="post" action="{{ url_for('reset') }}">
+          <button class="secondary" type="submit">重新记录</button>
+        </form>
       </section>
     {% endif %}
-
-    <form class="composer" method="post" action="{{ url_for('elder_report') }}">
-      <label for="user_input">继续告诉我</label>
-      <div class="input-row">
-        <textarea id="user_input" name="user_input" required placeholder="例如：我今天左手感觉没有力气">{{ draft_report }}</textarea>
-        <button type="submit">提交</button>
-      </div>
-    </form>
-    <form class="reset-form" method="post" action="{{ url_for('reset') }}">
-      <button class="secondary" type="submit">重新记录</button>
-    </form>
   </main>
-  <script>
-    const residentChoice = document.getElementById("resident_choice");
-    const newResidentFields = document.querySelector(".new-resident-fields");
-    residentChoice.addEventListener("change", () => {
-      newResidentFields.hidden = residentChoice.value !== "new";
-    });
-  </script>
 </body>
 </html>

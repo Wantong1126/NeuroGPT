@@ -90,3 +90,12 @@ def test_minimal_resident_creation_and_exact_name_lookup(monkeypatch, tmp_path) 
     assert product_store.find_resident_by_exact_name("李桂芳") == resident
     assert product_store.find_resident_by_exact_name("李桂") is None
     assert {item.name for item in product_store.list_residents()} == {"王秀兰", "李桂芳"}
+
+
+def test_elder_identity_residents_are_seeded_in_product_order(monkeypatch, tmp_path) -> None:
+    _use_temporary_store(monkeypatch, tmp_path)
+
+    residents = product_store.get_identity_residents()
+
+    assert [resident.name for resident in residents] == ["王秀兰", "李国强", "张明德"]
+    assert all(resident.institution_name == "示例养老院" for resident in residents)

@@ -15,6 +15,10 @@ from core.types import CaseState
 
 PRODUCT_DATA_DIR = Path(__file__).parent.parent / ".product_data"
 DEMO_RESIDENT_ID = "resident_demo_wang_xiulan"
+IDENTITY_RESIDENT_SEEDS = (
+    ("resident_demo_li_guoqiang", "李国强"),
+    ("resident_demo_zhang_mingde", "张明德"),
+)
 _SAFE_ID = re.compile(r"^[A-Za-z0-9_-]+$")
 
 
@@ -84,6 +88,18 @@ def get_demo_resident() -> Resident:
     )
     _write_record(path, resident)
     return resident
+
+
+def get_identity_residents() -> list[Resident]:
+    """Return the fixed MVP residents offered on the elder identity screen."""
+    residents = [get_demo_resident()]
+    for resident_id, name in IDENTITY_RESIDENT_SEEDS:
+        resident = get_resident(resident_id)
+        if resident is None:
+            resident = Resident(resident_id=resident_id, name=name)
+            _write_record(_record_path(_residents_dir(), resident_id), resident)
+        residents.append(resident)
+    return residents
 
 
 def get_resident(resident_id: str) -> Resident | None:
