@@ -1,27 +1,28 @@
 <!doctype html>
-<html lang="en">
+<html lang="zh-CN">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Elder check-in | NeuroGPT</title>
+  <title>老人状态记录 | NeuroGPT</title>
   <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
 </head>
 <body>
   <main class="shell elder-shell">
-    <a class="back-link" href="{{ url_for('home') }}">← Home</a>
+    <a class="back-link" href="{{ url_for('home') }}">← 首页</a>
     <header class="page-header">
       <div>
-        <p class="eyebrow">Elder check-in</p>
-        <h1>How are you feeling today?</h1>
+        <p class="eyebrow">老人状态记录</p>
+        <h1>今天哪里不舒服，或者有什么想告诉护理员/家人？</h1>
       </div>
+      <nav class="language-toggle" aria-label="语言切换"><a href="{{ url_for('elder', lang='zh') }}" aria-current="page">中文</a><span>|</span><a href="{{ url_for('elder', lang='en') }}">EN</a></nav>
     </header>
-    <p class="intro">Describe any change, discomfort, or concern in your own words.</p>
+    <p class="intro">可以直接说身体、睡眠、心情、行动、说话、记忆上的变化。</p>
 
     {% if messages %}
-      <section class="transcript" aria-label="Your check-in conversation">
+      <section class="transcript" aria-label="状态记录对话">
         {% for message in messages %}
           <article class="turn {{ 'user-turn' if message.role == 'user' else 'assistant-turn' }}">
-            <div class="turn-label">{{ 'You' if message.role == 'user' else 'NeuroGPT' }}</div>
+            <div class="turn-label">{{ '我' if message.role == 'user' else 'NeuroGPT' }}</div>
             <div class="turn-body">{{ message.content }}</div>
           </article>
         {% endfor %}
@@ -29,14 +30,14 @@
     {% endif %}
 
     <form class="composer" method="post" action="{{ url_for('elder_report') }}">
-      <label for="user_input">{{ 'Your answer' if needs_follow_up else 'Your update' }}</label>
+      <label for="user_input">继续告诉我</label>
       <div class="input-row">
-        <textarea id="user_input" name="user_input" required placeholder="For example: My left hand feels weaker today"></textarea>
-        <button type="submit">Send update</button>
+        <textarea id="user_input" name="user_input" required placeholder="例如：我今天左手感觉没有力气"></textarea>
+        <button type="submit">提交</button>
       </div>
     </form>
     <form class="reset-form" method="post" action="{{ url_for('reset') }}">
-      <button class="secondary" type="submit">Start a new check-in</button>
+      <button class="secondary" type="submit">重新记录</button>
     </form>
   </main>
 </body>

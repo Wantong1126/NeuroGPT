@@ -1,19 +1,19 @@
 <!doctype html>
-<html lang="en">
+<html lang="zh-CN">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Staff workflow | NeuroGPT</title>
+  <title>护理员端 | NeuroGPT</title>
   <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
 </head>
 <body>
   <main class="shell">
-    <a class="back-link" href="{{ url_for('home') }}">← Home</a>
-    <header class="page-header"><div><p class="eyebrow">Care staff</p><h1>Resident updates</h1></div></header>
+    <a class="back-link" href="{{ url_for('home') }}">← 首页</a>
+    <header class="page-header"><div><p class="eyebrow">护理员端</p><h1>待确认状态记录</h1></div><nav class="language-toggle" aria-label="语言切换"><a href="{{ url_for('staff', lang='zh') }}" aria-current="page">中文</a><span>|</span><a href="{{ url_for('staff', lang='en') }}">EN</a></nav></header>
     {% if latest_event %}
-      <section class="empty-state"><h2>{{ resident.name }} · {{ resident.room }}</h2><p>{{ latest_event.raw_report }}</p></section>
+      <section class="empty-state"><h2>{{ resident.name }} · {{ resident.room }}</h2><p>最新记录：{{ latest_event.raw_report }}</p></section>
     {% else %}
-      <section class="empty-state"><h2>No updates awaiting confirmation</h2><p>Resident reports that need staff review will appear here.</p></section>
+      <section class="empty-state"><h2>暂无待确认记录</h2><p>老人提交状态后，会显示在这里。</p></section>
     {% endif %}
   </main>
 </body>

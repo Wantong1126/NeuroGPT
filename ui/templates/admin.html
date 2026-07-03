@@ -1,18 +1,18 @@
 <!doctype html>
-<html lang="en">
+<html lang="zh-CN">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Institution overview | NeuroGPT</title>
+  <title>机构端 | NeuroGPT</title>
   <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
 </head>
 <body>
   <main class="shell">
-    <a class="back-link" href="{{ url_for('home') }}">← Home</a>
-    <header class="page-header"><div><p class="eyebrow">Institution</p><h1>Resident overview</h1></div></header>
+    <a class="back-link" href="{{ url_for('home') }}">← 首页</a>
+    <header class="page-header"><div><p class="eyebrow">机构端</p><h1>老人状态总览</h1></div><nav class="language-toggle" aria-label="语言切换"><a href="{{ url_for('admin', lang='zh') }}" aria-current="page">中文</a><span>|</span><a href="{{ url_for('admin', lang='en') }}">EN</a></nav></header>
     <section class="empty-state">
       <h2>{{ resident.name }} · {{ resident.room }}</h2>
-      <p>{{ resident.institution_name }}{% if latest_event %} · Latest update received{% else %} · No activity yet{% endif %}</p>
+      <p>{{ resident.institution_name }}{% if latest_event %} · 已收到最新记录{% else %} · 暂无状态记录{% endif %}</p>
     </section>
   </main>
 </body>

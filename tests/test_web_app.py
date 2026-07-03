@@ -19,7 +19,26 @@ def test_product_routes_load(monkeypatch, tmp_path) -> None:
         response = client.get(route)
         assert response.status_code == 200
 
-    assert b"Choose the area that matches your role" in client.get("/").data
+    home_response = client.get("/")
+    assert "请选择您的使用入口" in home_response.get_data(as_text=True)
+    assert "中文" in home_response.get_data(as_text=True)
+    assert "?lang=en" in home_response.get_data(as_text=True)
+
+
+def test_chinese_is_the_default_product_language(monkeypatch, tmp_path) -> None:
+    monkeypatch.setattr(product_store, "PRODUCT_DATA_DIR", tmp_path / ".product_data")
+    app = create_app()
+    app.config["TESTING"] = True
+    client = app.test_client()
+
+    elder_page = client.get("/elder").get_data(as_text=True)
+
+    assert '<html lang="zh-CN">' in elder_page
+    assert "今天哪里不舒服，或者有什么想告诉护理员/家人？" in elder_page
+    assert "可以直接说身体、睡眠、心情、行动、说话、记忆上的变化。" in elder_page
+    assert "继续告诉我" in elder_page
+    assert "提交" in elder_page
+    assert "/elder?lang=en" in elder_page
 
 
 
