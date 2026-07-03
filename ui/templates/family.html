@@ -13,7 +13,7 @@
     {% if latest_event and latest_event.family_report_ready %}
       <section class="empty-state"><h2>{{ resident.name }} · 最新近况</h2><p>{{ latest_event.caregiver_summary }}</p></section>
     {% else %}
-      <section class="empty-state"><h2>暂无已确认记录</h2><p>护理员确认后，老人的近况会显示在这里。</p></section>
+      <section class="empty-state"><h2>{{ resident.name }}暂无已确认记录</h2><p>护理员确认后，老人的近况会显示在这里。</p></section>
     {% endif %}
   </main>
 </body>

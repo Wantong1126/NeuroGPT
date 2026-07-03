@@ -18,6 +18,30 @@
     </header>
     <p class="intro">可以直接说身体、睡眠、心情、行动、说话、记忆上的变化。</p>
 
+    <section class="identity-card" aria-labelledby="identity-heading">
+      <h2 id="identity-heading">请选择/确认您是哪位</h2>
+      {% if selected_resident %}<p class="selected-resident">当前选择：{{ selected_resident.name }}{% if selected_resident.room %} · {{ selected_resident.room }}{% endif %}</p>{% endif %}
+      {% if identity_error %}<p class="identity-error" role="alert">{{ identity_error }}</p>{% endif %}
+      <form method="post" action="{{ url_for('elder_select') }}">
+        <label for="resident_choice">老人姓名</label>
+        <select id="resident_choice" name="resident_choice">
+          <option value="">请选择</option>
+          {% for resident in residents %}
+            <option value="{{ resident.resident_id }}"{% if not identity_choice and selected_resident and selected_resident.resident_id == resident.resident_id %} selected{% endif %}>{{ resident.name }}{% if resident.room %} {{ resident.room }}{% endif %}</option>
+          {% endfor %}
+          <option value="new"{% if identity_choice == 'new' %} selected{% endif %}>我是新老人/不在列表中</option>
+        </select>
+        <div class="new-resident-fields"{% if identity_choice != 'new' %} hidden{% endif %}>
+          <p>如果不在列表中，请填写：</p>
+          <label for="resident_name">姓名</label>
+          <input id="resident_name" name="resident_name" type="text" autocomplete="name" value="{{ identity_name }}">
+          <label for="resident_room">房间/床位（可选）</label>
+          <input id="resident_room" name="resident_room" type="text" placeholder="例如：205床" value="{{ identity_room }}">
+        </div>
+        <button type="submit">确认身份</button>
+      </form>
+    </section>
+
     {% if messages %}
       <section class="transcript" aria-label="状态记录对话">
         {% for message in messages %}
@@ -32,7 +56,7 @@
     <form class="composer" method="post" action="{{ url_for('elder_report') }}">
       <label for="user_input">继续告诉我</label>
       <div class="input-row">
-        <textarea id="user_input" name="user_input" required placeholder="例如：我今天左手感觉没有力气"></textarea>
+        <textarea id="user_input" name="user_input" required placeholder="例如：我今天左手感觉没有力气">{{ draft_report }}</textarea>
         <button type="submit">提交</button>
       </div>
     </form>
@@ -40,5 +64,12 @@
       <button class="secondary" type="submit">重新记录</button>
     </form>
   </main>
+  <script>
+    const residentChoice = document.getElementById("resident_choice");
+    const newResidentFields = document.querySelector(".new-resident-fields");
+    residentChoice.addEventListener("change", () => {
+      newResidentFields.hidden = residentChoice.value !== "new";
+    });
+  </script>
 </body>
 </html>

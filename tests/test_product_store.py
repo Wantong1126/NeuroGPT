@@ -74,3 +74,19 @@ def test_staff_confirmation_makes_family_report_ready(monkeypatch, tmp_path) -> 
     assert updated.staff_note == "Checked with resident at 09:30."
     assert updated.family_report_ready is True
     assert product_store.update_event_staff_status("event_missing", "confirmed") is None
+
+
+def test_minimal_resident_creation_and_exact_name_lookup(monkeypatch, tmp_path) -> None:
+    _use_temporary_store(monkeypatch, tmp_path)
+    product_store.get_demo_resident()
+
+    resident = product_store.create_resident(" 李桂芳 ", room=" 205床 ")
+
+    assert resident.name == "李桂芳"
+    assert resident.room == "205床"
+    assert resident.institution_name == "示例养老院"
+    assert resident.age is None
+    assert product_store.get_resident(resident.resident_id) == resident
+    assert product_store.find_resident_by_exact_name("李桂芳") == resident
+    assert product_store.find_resident_by_exact_name("李桂") is None
+    assert {item.name for item in product_store.list_residents()} == {"王秀兰", "李桂芳"}

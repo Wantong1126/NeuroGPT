@@ -10,16 +10,22 @@ from flask import Flask, redirect, render_template, request, session, url_for
 
 from core.product_store import (
     CareEvent,
+    Resident,
+    create_resident,
     create_care_event_from_state,
+    find_resident_by_exact_name,
     get_demo_resident,
     get_latest_event_for_resident,
+    get_resident,
     list_events_for_resident,
+    list_residents,
 )
 from core.session import create_session, delete_session, load_session, save_session
 from core.types import CaseState
 from pipeline.orchestrator import run_pipeline
 
 SESSION_KEY = "neurogpt_session_id"
+RESIDENT_KEY = "neurogpt_resident_id"
 CHINA_TIMEZONE = timezone(timedelta(hours=8))
 
 STAFF_STATUS_LABELS = {
@@ -44,14 +50,42 @@ def create_app() -> Flask:
         state = _get_or_create_state()
         return render_template("elder.html", **_build_elder_view_model(state))
 
+    @app.post("/elder/select")
+    def elder_select() -> Any:
+        resident, error = _resolve_resident_selection()
+        if error:
+            state = _get_or_create_state()
+            return render_template(
+                "elder.html",
+                **_build_elder_view_model(
+                    state,
+                    identity_error=error,
+                    identity_choice=request.form.get("resident_choice", ""),
+                    identity_name=request.form.get("resident_name", ""),
+                    identity_room=request.form.get("resident_room", ""),
+                ),
+            )
+        _select_resident(resident)
+        return redirect(url_for("elder"))
+
     @app.post("/elder/report")
     def elder_report() -> str:
         user_input = request.form.get("user_input", "").strip()
         state = _get_or_create_state()
+        resident = _selected_resident()
+        if user_input and resident is None:
+            return render_template(
+                "elder.html",
+                **_build_elder_view_model(
+                    state,
+                    identity_error="请先告诉我您是哪位，这样护理员才能知道要去看谁。",
+                    draft_report=user_input,
+                    identity_choice="new",
+                ),
+            )
         if user_input:
             state, _output = run_pipeline(state.session_id, user_input, state)
             save_session(state)
-            resident = get_demo_resident()
             create_care_event_from_state(state, resident.resident_id, user_input)
         return render_template("elder.html", **_build_elder_view_model(state))
 
@@ -91,16 +125,31 @@ def _get_or_create_state() -> CaseState:
     return state
 
 
-def _build_elder_view_model(state: CaseState) -> dict[str, Any]:
+def _build_elder_view_model(
+    state: CaseState,
+    identity_error: str = "",
+    draft_report: str = "",
+    identity_choice: str = "",
+    identity_name: str = "",
+    identity_room: str = "",
+) -> dict[str, Any]:
+    get_demo_resident()
     return {
         "messages": [message.model_dump() for message in state.conversation_history],
         "assistant_output": state.user_message,
         "needs_follow_up": state.needs_follow_up_question,
+        "residents": list_residents(),
+        "selected_resident": _selected_resident(),
+        "identity_error": identity_error,
+        "draft_report": draft_report,
+        "identity_choice": identity_choice,
+        "identity_name": identity_name,
+        "identity_room": identity_room,
     }
 
 
 def _build_product_view_model() -> dict[str, Any]:
-    resident = get_demo_resident()
+    resident = _product_resident()
     return {
         "resident": resident,
         "latest_event": get_latest_event_for_resident(resident.resident_id),
@@ -108,7 +157,7 @@ def _build_product_view_model() -> dict[str, Any]:
 
 
 def _build_admin_view_model() -> dict[str, Any]:
-    resident = get_demo_resident()
+    resident = _product_resident()
     events = list_events_for_resident(resident.resident_id)
     latest_event = events[0] if events else None
     today = datetime.now(CHINA_TIMEZONE).date()
@@ -159,3 +208,45 @@ def _family_report_status(event: CareEvent) -> str:
     if event.family_report_ready:
         return "可生成"
     return "待护理确认"
+
+
+def _resolve_resident_selection() -> tuple[Resident | None, str]:
+    choice = request.form.get("resident_choice", "").strip()
+    if choice == "new":
+        name = request.form.get("resident_name", "").strip()
+        room = request.form.get("resident_room", "").strip()
+        if not name:
+            return None, "请告诉我您的姓名。"
+        get_demo_resident()
+        resident = find_resident_by_exact_name(name)
+        return resident or create_resident(name=name, room=room), ""
+
+    resident = get_resident(choice) if choice else None
+    if resident is None:
+        return None, "请选择或填写您的姓名。"
+    return resident, ""
+
+
+def _select_resident(resident: Resident | None) -> None:
+    if resident is None:
+        return
+    previous_resident_id = session.get(RESIDENT_KEY)
+    session[RESIDENT_KEY] = resident.resident_id
+    if previous_resident_id != resident.resident_id:
+        _delete_current_case_session()
+
+
+def _selected_resident() -> Resident | None:
+    resident_id = session.get(RESIDENT_KEY)
+    return get_resident(resident_id) if resident_id else None
+
+
+def _product_resident() -> Resident:
+    return _selected_resident() or get_demo_resident()
+
+
+def _delete_current_case_session() -> None:
+    session_id = session.get(SESSION_KEY)
+    if session_id:
+        delete_session(session_id)
+    session.pop(SESSION_KEY, None)

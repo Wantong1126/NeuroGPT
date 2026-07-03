@@ -35,12 +35,12 @@ class StaffStatus(str, Enum):
 class Resident(BaseModel):
     resident_id: str
     name: str
-    age: int
-    gender: str
-    room: str
-    institution_name: str
-    family_contact_name: str
-    family_relationship: str
+    age: int | None = None
+    gender: str = ""
+    room: str = ""
+    institution_name: str = "示例养老院"
+    family_contact_name: str = ""
+    family_relationship: str = ""
     care_focus: list[str] = Field(default_factory=list)
 
 
@@ -83,6 +83,62 @@ def get_demo_resident() -> Resident:
         care_focus=["睡眠", "记忆", "行动变化"],
     )
     _write_record(path, resident)
+    return resident
+
+
+def get_resident(resident_id: str) -> Resident | None:
+    """Load one resident by ID."""
+    try:
+        path = _record_path(_residents_dir(), resident_id)
+    except ValueError:
+        return None
+    if not path.exists():
+        return None
+    try:
+        return Resident.model_validate_json(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+
+
+def list_residents() -> list[Resident]:
+    """Return all stored residents ordered by name and ID."""
+    directory = _residents_dir()
+    if not directory.exists():
+        return []
+
+    residents: list[Resident] = []
+    for path in directory.glob("*.json"):
+        try:
+            residents.append(Resident.model_validate_json(path.read_text(encoding="utf-8")))
+        except (OSError, ValueError):
+            continue
+    return sorted(residents, key=lambda resident: (resident.name, resident.resident_id))
+
+
+def find_resident_by_exact_name(name: str) -> Resident | None:
+    """Find a resident by exact trimmed name match."""
+    expected_name = name.strip()
+    if not expected_name:
+        return None
+    return next((resident for resident in list_residents() if resident.name == expected_name), None)
+
+
+def create_resident(
+    name: str,
+    room: str = "",
+    institution_name: str = "示例养老院",
+) -> Resident:
+    """Create the minimal resident record supported by the MVP identity flow."""
+    clean_name = name.strip()
+    if not clean_name:
+        raise ValueError("resident name is required")
+    resident = Resident(
+        resident_id=f"resident_{uuid4().hex}",
+        name=clean_name,
+        room=room.strip(),
+        institution_name=institution_name.strip() or "示例养老院",
+    )
+    _write_record(_record_path(_residents_dir(), resident.resident_id), resident)
     return resident
 
 

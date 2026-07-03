@@ -25,13 +25,13 @@
       <h2 id="resident-heading">老人档案</h2>
       <dl class="detail-grid">
         <div><dt>姓名</dt><dd>{{ resident.name }}</dd></div>
-        <div><dt>年龄</dt><dd>{{ resident.age }}岁</dd></div>
-        <div><dt>性别</dt><dd>{{ resident.gender }}</dd></div>
-        <div><dt>房间/床位</dt><dd>{{ resident.room }}</dd></div>
+        <div><dt>年龄</dt><dd>{{ resident.age ~ '岁' if resident.age is not none else '未填写' }}</dd></div>
+        <div><dt>性别</dt><dd>{{ resident.gender or '未填写' }}</dd></div>
+        <div><dt>房间/床位</dt><dd>{{ resident.room or '未填写' }}</dd></div>
         <div><dt>机构</dt><dd>{{ resident.institution_name }}</dd></div>
-        <div><dt>家属联系人</dt><dd>{{ resident.family_contact_name }}</dd></div>
-        <div><dt>关系</dt><dd>{{ resident.family_relationship }}</dd></div>
-        <div class="detail-wide"><dt>重点关注</dt><dd>{{ resident.care_focus | join('、') }}</dd></div>
+        <div><dt>家属联系人</dt><dd>{{ resident.family_contact_name or '未填写' }}</dd></div>
+        <div><dt>关系</dt><dd>{{ resident.family_relationship or '未填写' }}</dd></div>
+        <div class="detail-wide"><dt>重点关注</dt><dd>{{ resident.care_focus | join('、') if resident.care_focus else '暂未设置' }}</dd></div>
       </dl>
     </section>
 

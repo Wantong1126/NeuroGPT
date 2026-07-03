@@ -7,6 +7,12 @@ from core.types import CaseState
 from ui.web import create_app
 
 
+def _select_demo_resident(client) -> None:
+    resident = product_store.get_demo_resident()
+    response = client.post("/elder/select", data={"resident_choice": resident.resident_id})
+    assert response.status_code == 302
+
+
 
 def test_product_routes_load(monkeypatch, tmp_path) -> None:
     monkeypatch.setattr(product_store, "PRODUCT_DATA_DIR", tmp_path / ".product_data")
@@ -90,6 +96,8 @@ def test_flask_route_persists_case_state_across_requests(monkeypatch, tmp_path) 
     client = app.test_client()
 
     client.get("/elder")
+    _select_demo_resident(client)
+    client.get("/elder")
     with client.session_transaction() as flask_session:
         session_id = flask_session["neurogpt_session_id"]
 
@@ -118,6 +126,91 @@ def test_flask_route_persists_case_state_across_requests(monkeypatch, tmp_path) 
     assert events[0].raw_report == "started suddenly this morning with slurred speech"
 
     delete_session(session_id)
+
+
+def test_report_waits_for_resident_identity_before_pipeline(monkeypatch, tmp_path) -> None:
+    monkeypatch.setattr(product_store, "PRODUCT_DATA_DIR", tmp_path / ".product_data")
+    app = create_app()
+    app.config["TESTING"] = True
+    client = app.test_client()
+    client.get("/elder")
+    with client.session_transaction() as flask_session:
+        session_id = flask_session["neurogpt_session_id"]
+
+    response = client.post("/elder/report", data={"user_input": "我今天头晕。"})
+    state = load_session(session_id)
+
+    assert "请先告诉我您是哪位，这样护理员才能知道要去看谁。" in response.get_data(as_text=True)
+    assert "我今天头晕。" in response.get_data(as_text=True)
+    assert '<div class="new-resident-fields">' in response.get_data(as_text=True)
+    assert state is not None
+    assert state.conversation_history == []
+    assert product_store.list_events_for_resident(product_store.get_demo_resident().resident_id) == []
+
+
+def test_new_or_exact_match_resident_receives_report(monkeypatch, tmp_path) -> None:
+    monkeypatch.setattr(product_store, "PRODUCT_DATA_DIR", tmp_path / ".product_data")
+    existing = product_store.create_resident("李桂芳", room="205床")
+    app = create_app()
+    app.config["TESTING"] = True
+    client = app.test_client()
+
+    missing_name = client.post(
+        "/elder/select",
+        data={"resident_choice": "new", "resident_name": "", "resident_room": "206床"},
+    )
+    assert "请告诉我您的姓名。" in missing_name.get_data(as_text=True)
+
+    response = client.post(
+        "/elder/select",
+        data={"resident_choice": "new", "resident_name": "李桂芳", "resident_room": "999床"},
+    )
+    assert response.status_code == 302
+    with client.session_transaction() as flask_session:
+        assert flask_session["neurogpt_resident_id"] == existing.resident_id
+
+    client.post("/elder/report", data={"user_input": "我昨晚没有睡好。"})
+    events = product_store.list_events_for_resident(existing.resident_id)
+    assert len(events) == 1
+    assert events[0].raw_report == "我昨晚没有睡好。"
+    assert product_store.find_resident_by_exact_name("李桂芳").room == "205床"
+
+    assert "李桂芳" in client.get("/staff").get_data(as_text=True)
+    assert "李桂芳" in client.get("/family").get_data(as_text=True)
+    admin_page = client.get("/admin").get_data(as_text=True)
+    assert "李桂芳" in admin_page
+    assert "我昨晚没有睡好。" in admin_page
+
+
+def test_switching_resident_starts_a_separate_case_session(monkeypatch, tmp_path) -> None:
+    monkeypatch.setattr(product_store, "PRODUCT_DATA_DIR", tmp_path / ".product_data")
+    app = create_app()
+    app.config["TESTING"] = True
+    client = app.test_client()
+
+    client.get("/elder")
+    _select_demo_resident(client)
+    client.get("/elder")
+    with client.session_transaction() as flask_session:
+        first_session_id = flask_session["neurogpt_session_id"]
+    client.post("/elder/report", data={"user_input": "我今天左手没力。"})
+
+    client.post(
+        "/elder/select",
+        data={"resident_choice": "new", "resident_name": "赵玉兰", "resident_room": "208床"},
+    )
+    assert load_session(first_session_id) is None
+
+    client.get("/elder")
+    with client.session_transaction() as flask_session:
+        second_session_id = flask_session["neurogpt_session_id"]
+        selected_resident_id = flask_session["neurogpt_resident_id"]
+    second_state = load_session(second_session_id)
+
+    assert second_session_id != first_session_id
+    assert second_state is not None
+    assert second_state.conversation_history == []
+    assert product_store.get_resident(selected_resident_id).name == "赵玉兰"
 
 
 def test_reset_replaces_current_elder_session(monkeypatch, tmp_path) -> None:
