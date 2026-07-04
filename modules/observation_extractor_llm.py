@@ -15,6 +15,9 @@ Do not collapse the report into broad categories. Preserve the elder's raw wordi
 Return valid JSON only.
 Ask one best next question that would most help a caregiver understand what to check next.
 The question must be specific to the elder's actual words.
+The elder response must repeat the concrete issue, may give 2-4 plausible common
+reasons when appropriate, must not diagnose, and must ask only one question.
+Never use generic wording such as “这种情况可能有多种常见原因”.
 Do not ask generic neuro questions unless the elder actually reports numbness, weakness,
 speech change, face droop, confusion, fall, or acute severe headache.
 For family summaries, avoid diagnosis and avoid alarming language.
@@ -130,13 +133,9 @@ def _validate_result(
         if not neuro_question_allowed:
             if any(term in observation.next_best_question for term in FORBIDDEN_NON_NEURO_QUESTION_TERMS):
                 return fallback
-    primary = result.observations[0]
-    if (
-        not result.recommended_elder_response
-        or primary.raw_quote not in result.recommended_elder_response
-        or primary.next_best_question not in result.recommended_elder_response
-    ):
-        result.recommended_elder_response = _format_elder_response(result.observations[0])
+    # The model extracts detail, but local rendering owns the elder-facing wording.
+    # This prevents a structurally valid response from reintroducing generic copy.
+    result.recommended_elder_response = format_observation_elder_response(result.observations[0])
     if not result.recommended_staff_handoff:
         result.recommended_staff_handoff = fallback.recommended_staff_handoff
     if not result.recommended_family_summary_after_confirmation:
@@ -157,7 +156,7 @@ def _heuristic_extraction(raw_report: str) -> ObservationExtractionResult:
                 "是否因为疼痛、起夜、心慌、焦虑或环境影响",
                 "今天白天精神是否受影响",
             ],
-            next_best_question="昨晚是睡不着，还是半夜醒了很多次？有没有因为疼、心慌、起夜，或者心里有事睡不着？",
+            next_best_question="昨晚是睡不着，还是半夜醒了很多次？",
             staff_checklist=["了解具体睡眠困难类型", "询问夜间疼痛、起夜、心慌或情绪影响", "观察白天精神状态"],
             family_safe_summary="老人反映昨晚睡眠不好，护理员将进一步了解原因和白天精神状态。",
             red_flag_checks_needed=["明显胸闷或心慌", "白天意识或精神状态明显改变"],
@@ -177,7 +176,7 @@ def _heuristic_extraction(raw_report: str) -> ObservationExtractionResult:
                 "是否活动后、久坐、受凉或睡姿有关",
                 "是否伴随胸闷、气短、出汗、摔倒或疼痛加重",
             ],
-            next_best_question="这种酸痛是今天刚出现，还是已经有几天了？有没有摔倒、胸闷、气短、出汗，或者越来越痛？",
+            next_best_question="这种酸痛是今天刚出现，还是已经有几天了？",
             staff_checklist=["确认酸痛开始时间", "询问活动、久坐、受凉或睡姿", "观察活动是否受影响"],
             family_safe_summary="老人反映肩膀和背部酸痛，护理员将确认持续时间、诱因及是否加重。",
             red_flag_checks_needed=["胸闷", "气短", "出汗", "摔倒", "疼痛明显加重"],
@@ -193,7 +192,7 @@ def _heuristic_extraction(raw_report: str) -> ObservationExtractionResult:
             body_location="手部",
             sensation_quality="麻",
             missing_information=["哪只手", "是突然出现还是逐渐出现", "是否伴随没力、说话不清、脸歪、走路不稳"],
-            next_best_question="是哪只手麻？是突然出现的吗？有没有同时没力、说话不清、脸歪或走路不稳？",
+            next_best_question="请告诉我是哪只手麻、是不是突然出现，以及有没有同时没力、说话不清、脸歪或走路不稳？",
             staff_checklist=["确认左右侧", "确认开始时间", "检查握力、说话、面部和行走变化"],
             family_safe_summary="老人反映手部发麻，护理员将确认左右侧、开始时间及是否伴随其他变化。",
             red_flag_checks_needed=["单侧明显没力", "说话不清", "脸歪", "走路不稳"],
@@ -210,7 +209,7 @@ def _heuristic_extraction(raw_report: str) -> ObservationExtractionResult:
             sensation_quality="痛",
             time_reference="突然" if "突然" in text else None,
             missing_information=["是突然很严重还是慢慢开始", "是否伴随呕吐、看不清、说话不清或手脚没力"],
-            next_best_question="头痛是突然一下子很严重，还是慢慢开始的？有没有呕吐、看不清、说话不清，或者手脚没力？",
+            next_best_question="头痛是突然一下子很严重，还是慢慢开始的，有没有呕吐、看不清、说话不清或手脚没力？",
             staff_checklist=["确认头痛开始方式和严重程度", "询问呕吐、视力、说话和手脚力量变化"],
             family_safe_summary="老人反映头痛，护理员将确认开始方式、严重程度和是否伴随其他不适。",
             red_flag_checks_needed=["突然剧烈头痛", "呕吐", "看不清", "说话不清", "手脚没力"],
@@ -227,7 +226,7 @@ def _heuristic_extraction(raw_report: str) -> ObservationExtractionResult:
             emotional_context=text,
             elder_intent=intent,
             missing_information=["是否有身体不舒服但不愿麻烦家人", "最近是否心情不好或更想独处", "是否需要护理员陪伴或联系家人"],
-            next_best_question="您是身体不舒服但不想麻烦家人，还是最近心情不好、担心家人，或更想一个人待着？",
+            next_best_question="您是哪里不舒服，还是最近心情不好、想一个人待着？",
             staff_checklist=["主动询问身体不适", "了解情绪和陪伴需要", "确认是否需要联系家属"],
             family_safe_summary="老人表达了不想麻烦家人或近期心情方面的顾虑，护理员会先了解其身体和情绪需要。",
             red_flag_checks_needed=["明显绝望", "伤害自己的想法", "拒绝进食或长期不愿交流"],
@@ -253,7 +252,7 @@ def _result_from_detail(detail: ObservationDetail) -> ObservationExtractionResul
     return ObservationExtractionResult(
         observations=[detail],
         overall_plain_summary=detail.specific_problem,
-        recommended_elder_response=_format_elder_response(detail),
+        recommended_elder_response=format_observation_elder_response(detail),
         recommended_staff_handoff=(
             f"老人原话：{detail.raw_quote}。具体情况：{detail.specific_problem}。"
             f"请重点确认：{'；'.join(detail.staff_checklist)}。"
@@ -262,9 +261,82 @@ def _result_from_detail(detail: ObservationDetail) -> ObservationExtractionResul
     )
 
 
-def _format_elder_response(detail: ObservationDetail) -> str:
-    report = detail.raw_quote.rstrip("。.!！")
-    return f"我听到您说：{report}。请您再告诉我：{detail.next_best_question}"
+def format_observation_elder_response(
+    detail: ObservationDetail,
+    question: str | None = None,
+    *,
+    include_question: bool = True,
+    max_chars: int | None = 220,
+) -> str:
+    """Render one concrete, non-diagnostic elder response from ObservationDetail."""
+    report = _display_report(detail.raw_quote or detail.specific_problem)
+    acknowledgement = f"我听到您说{report}。"
+    explanation = _plain_common_reasons(detail)
+
+    question_text = ""
+    if include_question:
+        planned_question = _truncate_question(_single_question(question or detail.next_best_question), 110)
+        prompt = "请您告诉我：" if detail.domain == "mood" else "请您再告诉我："
+        question_text = f"{prompt}{planned_question}"
+
+    response = f"{acknowledgement}{explanation}{question_text}"
+    if max_chars is None or len(response) <= max_chars:
+        return response
+
+    # Long free-form reports must not push the useful question off screen.
+    report = _truncate(report, 48)
+    acknowledgement = f"我听到您说{report}。"
+    available = max_chars - len(acknowledgement) - len(question_text)
+    compact_explanation = _truncate(explanation, max(0, available)) if available else ""
+    return f"{acknowledgement}{compact_explanation}{question_text}"[:max_chars]
+
+
+def _plain_common_reasons(detail: ObservationDetail) -> str:
+    problem = detail.specific_problem
+    location = detail.body_location or ""
+    intent = detail.elder_intent or ""
+
+    if detail.domain == "sleep" or "睡" in problem:
+        return "睡不好可能和起夜、身体不舒服、心里惦记事、白天活动少或环境影响有关。"
+    if detail.domain == "pain" and (
+        any(part in location for part in ("肩", "背", "腰", "胳膊", "腿", "关节", "肌肉"))
+        or any(part in problem for part in ("肩", "背", "腰", "肌肉酸"))
+    ):
+        return "这可能和睡姿、久坐、活动后肌肉酸痛或受凉有关，也要确认有没有摔倒或突然加重。"
+    if detail.domain == "mood" and ("不想麻烦" in intent or "不想麻烦" in detail.raw_quote):
+        return "很多老人身体不舒服时会先忍着，但护理员知道后才能更好照顾您。"
+    if detail.domain == "sensory" and ("麻" in problem or "麻" in detail.raw_quote):
+        return "手麻有时和姿势压迫、手臂劳累或受凉有关，也要确认是不是突然出现。"
+    if detail.domain == "pain" and (location == "头部" or "头痛" in problem or "头疼" in detail.raw_quote):
+        return "头痛有时和休息不好、紧张或受凉有关，也要确认是不是突然加重或伴有其他不舒服。"
+    return "我先帮您把这个具体情况记下来，还需要再了解一点。"
+
+
+def _display_report(report: str) -> str:
+    text = report.strip().rstrip("。.!！")
+    if text.startswith("我") and len(text) > 1:
+        text = text[1:].lstrip("，, ")
+    return text or "有些不舒服"
+
+
+def _single_question(question: str) -> str:
+    text = question.strip().rstrip("。.!！?？")
+    text = text.replace("？", "，").replace("?", "，")
+    return f"{text.rstrip('，, ')}？"
+
+
+def _truncate(text: str, length: int) -> str:
+    if length <= 0:
+        return ""
+    if len(text) <= length:
+        return text
+    return f"{text[:max(1, length - 1)].rstrip('，,；; ')}…"
+
+
+def _truncate_question(question: str, length: int) -> str:
+    if len(question) <= length:
+        return question
+    return f"{question[:max(1, length - 1)].rstrip('，,；;。.!！？? ')}？"
 
 
 def _is_shoulder_back_soreness(text: str) -> bool:

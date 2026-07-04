@@ -32,7 +32,8 @@ def test_musculoskeletal_soreness_gets_relevant_follow_up() -> None:
 
     assert output.needs_follow_up_question is True
     assert "今天刚出现" in (output.follow_up_question or "")
-    assert "摔倒、胸闷、气短、出汗" in (output.follow_up_question or "")
+    assert "已经有几天了" in (output.follow_up_question or "")
+    assert "摔倒或突然加重" in output.user_message
     assert "酸痛" in output.user_message
     for irrelevant in ("麻木", "没力、动作不灵活", "感觉变迟钝"):
         assert irrelevant not in output.user_message
@@ -54,7 +55,7 @@ def test_sleep_complaint_gets_sleep_follow_up() -> None:
     _state, output = run_pipeline("context-sleep", "我睡不好")
 
     assert "昨晚是睡不着" in (output.follow_up_question or "")
-    assert "心慌、起夜" in (output.follow_up_question or "")
+    assert "起夜、身体不舒服" in output.user_message
     assert "睡不着" in output.user_message
     assert "半夜醒了很多次" in output.user_message
 
@@ -74,5 +75,5 @@ def test_context_follow_up_keeps_staff_summary_out_of_elder_message() -> None:
 
     assert output.caregiver_summary
     assert "给家属/医生" not in output.user_message
-    assert "我听到您说：我肩膀酸。" in output.user_message
+    assert "我听到您说肩膀酸。" in output.user_message
     assert "请您再告诉我：" in output.user_message

@@ -189,7 +189,7 @@ def _fallback_possible_reasons(family: SymptomFamily) -> str:
         "gait_fall": "这种情况可能和腿脚乏力、头晕、疼痛或平衡变化有关。",
         "appetite_digestion": "这种情况可能和饮食、消化、药物或休息不好有关。",
         "chest_breathing": "这种情况可能和活动、紧张或身体不适有关，需要尽快确认有没有加重。",
-        "general_unclear": "这种情况可能有多种常见原因，也可能只是短暂不适。",
+        "general_unclear": "我先帮您把这个具体情况记下来，还需要再了解一点。",
     }
     return reasons[family]
 

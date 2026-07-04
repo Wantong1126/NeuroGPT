@@ -11,9 +11,9 @@ from pipeline.orchestrator import run_pipeline
     ("text", "domain", "specific_text", "question_text"),
     [
         ("昨晚没睡好", "sleep", "昨晚睡眠质量不好", "半夜醒了很多次"),
-        ("我肩膀和背很酸", "pain", "肩膀和背部酸痛", "有没有摔倒、胸闷、气短、出汗"),
+        ("我肩膀和背很酸", "pain", "肩膀和背部酸痛", "已经有几天了"),
         ("我手麻", "sensory", "手部发麻", "是哪只手麻"),
-        ("我不想麻烦孩子", "mood", "不想麻烦家人", "身体不舒服但不想麻烦家人"),
+        ("我不想麻烦孩子", "mood", "不想麻烦家人", "您是哪里不舒服"),
     ],
 )
 def test_heuristic_fallback_extracts_concrete_observation(
@@ -60,7 +60,7 @@ def test_ds_extraction_uses_openai_compatible_config_and_schema(monkeypatch) -> 
                 "confidence": "high",
             }],
             "overall_plain_summary": "昨晚睡眠质量不好",
-            "recommended_elder_response": "我听到您说：昨晚没睡好。请您再告诉我：昨晚是睡不着，还是半夜醒了很多次？",
+            "recommended_elder_response": "这种情况可能有多种常见原因，也可能只是短暂不适。",
             "recommended_staff_handoff": "老人昨晚睡眠不好，请了解具体原因。",
             "recommended_family_summary_after_confirmation": "老人昨晚睡眠欠佳，护理员已关注。",
         }
@@ -73,6 +73,9 @@ def test_ds_extraction_uses_openai_compatible_config_and_schema(monkeypatch) -> 
     assert calls[0][4] == "https://api.deepseek.com/v1"
     assert "Do not collapse" in calls[0][1]
     assert "next_best_question" in calls[0][2]
+    assert "昨晚没睡好" in result.recommended_elder_response
+    assert "起夜、身体不舒服、心里惦记事" in result.recommended_elder_response
+    assert "多种常见原因" not in result.recommended_elder_response
 
 
 def test_ds_failure_returns_fallback_confidence(monkeypatch) -> None:
@@ -89,14 +92,15 @@ def test_sleep_pipeline_uses_specific_observation_question() -> None:
 
     assert state.observation_extraction["observations"][0]["domain"] == "sleep"
     assert "半夜醒了很多次" in (output.follow_up_question or "")
-    assert "疼、心慌、起夜" in output.user_message
+    assert "起夜、身体不舒服、心里惦记事" in output.user_message
     assert "今天刚出现" not in output.user_message
 
 
 def test_pain_pipeline_does_not_use_generic_neuro_question() -> None:
     _state, output = run_pipeline("detail-pain", "我肩膀和背很酸")
 
-    assert "有没有摔倒、胸闷、气短、出汗" in (output.follow_up_question or "")
+    assert "已经有几天了" in (output.follow_up_question or "")
+    assert "睡姿、久坐、活动后肌肉酸痛或受凉" in output.user_message
     for phrase in ("麻木", "动作不灵活", "感觉变迟钝"):
         assert phrase not in output.user_message
 
@@ -115,7 +119,26 @@ def test_mood_report_preserves_intent_and_emotional_context() -> None:
 
     assert observation["elder_intent"] == "不想麻烦孩子"
     assert observation["emotional_context"] == "我不想麻烦孩子"
-    assert "身体不舒服但不想麻烦家人" in (output.follow_up_question or "")
+    assert "您是哪里不舒服" in (output.follow_up_question or "")
+    assert "护理员知道后才能更好照顾您" in output.user_message
+
+
+@pytest.mark.parametrize(
+    ("report", "expected"),
+    [
+        ("昨晚没睡好", "睡不好可能和起夜、身体不舒服"),
+        ("我肩膀和背很酸", "睡姿、久坐、活动后肌肉酸痛"),
+        ("我不想麻烦孩子", "护理员知道后才能更好照顾您"),
+        ("我手麻", "手麻有时和姿势压迫"),
+    ],
+)
+def test_elder_response_mentions_issue_and_specific_explanation(report: str, expected: str) -> None:
+    _state, output = run_pipeline(f"detail-render-{report}", report)
+
+    assert report.removeprefix("我") in output.user_message
+    assert expected in output.user_message
+    assert "多种常见原因" not in output.user_message
+    assert len(output.user_message) <= 220
 
 
 def test_deterministic_emergency_action_overrides_observation_question() -> None:

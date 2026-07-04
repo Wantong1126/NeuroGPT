@@ -17,6 +17,7 @@ from modules.hesitation_detector import detect_hesitation
 from modules.observation_extractor_llm import (
     ObservationExtractionResult,
     extract_observation_details,
+    format_observation_elder_response,
 )
 from modules.question_manager import decide_question
 from modules.response_builder import (
@@ -222,14 +223,19 @@ def _build_observation_elder_text(
     action_level: str,
 ) -> str:
     observation = extraction.observations[0] if extraction.observations else None
-    if question:
-        response = extraction.recommended_elder_response.strip()
-        if not response or question not in response:
-            quote = observation.raw_quote if observation else extraction.overall_plain_summary
-            response = f"我听到您说：{quote.rstrip('。.!！')}。请您再告诉我：{question}"
+    if observation:
+        response = format_observation_elder_response(
+            observation,
+            question,
+            include_question=bool(question),
+            max_chars=None if action_level in ESCALATION_ACTIONS else 220,
+        )
+    elif question:
+        quote = extraction.overall_plain_summary.rstrip("。.!！")
+        response = f"我听到您说{quote}。请您再告诉我：{question}"
     else:
-        quote = observation.raw_quote if observation else extraction.overall_plain_summary
-        response = f"我听到您说：{quote.rstrip('。.!！')}。我已经记录下来了。"
+        quote = extraction.overall_plain_summary.rstrip("。.!！")
+        response = f"我听到您说{quote}。我已经记录下来了。"
 
     if action_level in {"emergency_now", "same_day_review"}:
         urgent_text = "请马上叫护理员过来看一下。"

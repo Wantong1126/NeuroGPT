@@ -81,7 +81,7 @@ def test_ambiguous_one_sided_sensory_complaint_asks_one_question() -> None:
     assert "【为什么要问】" not in output.user_message
     assert "现在不把它说成诊断" not in output.user_message
     assert_one_question(output.user_message)
-    assert "我听到您说：my right hand feels weird and numb。" in output.user_message
+    assert "我听到您说my right hand feels weird and numb。" in output.user_message
     assert "立即拨打" not in output.user_message
     assert_caregiver_summary_exists(output)
     assert_no_diagnosis_claim(output.user_message)
@@ -181,7 +181,7 @@ def test_llm_success_augments_observations_without_controlling_action(monkeypatc
     assert state.symptoms_detected.llm_observation_count > 0
     assert any(obs.symptom_family == "sensory" for obs in state.symptoms_detected.observations)
     assert output.action_level != "emergency_now"
-    assert "我听到您说：right hand feels wrapped。" in output.user_message
+    assert "我听到您说right hand feels wrapped。" in output.user_message
     assert "action_level" not in output.user_message
     assert "concern_level" not in output.user_message
     assert_no_diagnosis_claim(output.user_message)

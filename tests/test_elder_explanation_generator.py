@@ -130,7 +130,7 @@ def test_pipeline_uses_detailed_observation_without_changing_action() -> None:
 
     assert output.action_level == "monitor"
     assert "睡不着，还是半夜醒了很多次" in output.user_message
-    assert "疼、心慌、起夜" in (output.follow_up_question or "")
+    assert "起夜、身体不舒服、心里惦记事" in output.user_message
     assert "给家属/医生" not in output.user_message
 
 

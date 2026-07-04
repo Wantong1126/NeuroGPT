@@ -212,7 +212,7 @@ def test_patient_facing_clarification_uses_natural_uncertainty_wording() -> None
     )
 
     assert output.needs_follow_up_question is True
-    assert "我听到您说：my right hand feels weird and numb。" in output.user_message
+    assert "我听到您说my right hand feels weird and numb。" in output.user_message
     assert "请您再告诉我：" in output.user_message
     assert "【给家属/医生的话】" not in output.user_message
     assert "给家属/医生：" not in output.user_message
