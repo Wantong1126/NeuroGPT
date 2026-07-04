@@ -113,6 +113,8 @@ def extract_observation_details(raw_report: str) -> ObservationExtractionResult:
             SCHEMA,
             model=get_provider_model("observation_extractor_llm") or None,
             base_url=get_provider_base_url("observation_extractor_llm") or None,
+            timeout_seconds=3.0,
+            max_attempts=1,
         )
         result = ObservationExtractionResult.model_validate(raw)
         return _validate_result(result, raw_report, fallback)

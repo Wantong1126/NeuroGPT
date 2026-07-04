@@ -170,6 +170,8 @@ def _extract_llm_observations(
             OBSERVATION_SCHEMA,
             model=get_provider_model("symptom_extractor") or None,
             base_url=get_provider_base_url("symptom_extractor") or None,
+            timeout_seconds=3.0,
+            max_attempts=1,
         )
     except Exception as exc:
         return {}, [], type(exc).__name__, {}

@@ -44,7 +44,15 @@ def test_ds_extraction_uses_openai_compatible_config_and_schema(monkeypatch) -> 
     monkeypatch.setattr(extractor, "get_provider_model", lambda _module: "deepseek-v4-pro")
     monkeypatch.setattr(extractor, "get_provider_base_url", lambda _module: "https://api.deepseek.com/v1")
 
-    def fake_call(prompt, system_prompt, schema, model=None, base_url=None):
+    def fake_call(
+        prompt,
+        system_prompt,
+        schema,
+        model=None,
+        base_url=None,
+        timeout_seconds=None,
+        max_attempts=None,
+    ):
         calls.append((prompt, system_prompt, schema, model, base_url))
         return {
             "observations": [{

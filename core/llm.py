@@ -99,6 +99,8 @@ def call(
     base_url: Optional[str] = None,
     json_mode: bool = False,
     temperature: float = 0.3,
+    timeout_seconds: float = 60.0,
+    max_attempts: int = MAX_ATTEMPTS,
 ) -> str:
     """
     Make an LLM API call. Returns the assistant's text response.
@@ -139,8 +141,8 @@ def call(
     if json_mode:
         payload["response_format"] = {"type": "json_object"}
 
-    with httpx.Client(timeout=60.0) as client:
-        for attempt in range(1, MAX_ATTEMPTS + 1):
+    with httpx.Client(timeout=timeout_seconds) as client:
+        for attempt in range(1, max_attempts + 1):
             LAST_CALL_ATTEMPTS = attempt
             try:
                 response = client.post(
@@ -154,7 +156,7 @@ def call(
             except RETRYABLE_EXCEPTION_TYPES as exc:
                 if not _should_retry(exc):
                     raise
-                if attempt >= MAX_ATTEMPTS:
+                if attempt >= max_attempts:
                     raise LLMAPIError(
                         f"LLM API call failed after {attempt} {_attempt_label(attempt)}: {exc}",
                         attempts=attempt,
@@ -168,6 +170,8 @@ def call_structured(
     schema: str,
     model: Optional[str] = None,
     base_url: Optional[str] = None,
+    timeout_seconds: float = 60.0,
+    max_attempts: int = MAX_ATTEMPTS,
 ) -> dict:
     """Call LLM and parse JSON response matching the provided schema description."""
     full_system = (
@@ -181,6 +185,8 @@ def call_structured(
         model=model,
         base_url=base_url,
         json_mode=True,
+        timeout_seconds=timeout_seconds,
+        max_attempts=max_attempts,
     )
     # Strip markdown code fences if present
     raw = raw.strip()

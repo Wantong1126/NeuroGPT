@@ -4,10 +4,11 @@ from __future__ import annotations
 
 import os
 import logging
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as PipelineTimeoutError
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
-from flask import Flask, redirect, render_template, request, session, url_for
+from flask import Flask, jsonify, redirect, render_template, request, session, url_for
 
 from core.product_store import (
     CareEvent,
@@ -23,6 +24,7 @@ from core.product_store import (
     list_events_for_resident,
     update_event_staff_status,
 )
+from core.provider_settings import force_local_providers
 from core.session import create_session, delete_session, load_session, save_session
 from core.types import CaseState
 from modules.elder_observation_response_renderer import render_elder_observation_response
@@ -33,6 +35,7 @@ RESIDENT_KEY = "neurogpt_resident_id"
 IDENTITY_NOTICE_KEY = "neurogpt_identity_notice"
 CHINA_TIMEZONE = timezone(timedelta(hours=8))
 SAFE_ELDER_FALLBACK = "我已经帮您记录下来了，会提醒护理员查看。请您先告诉护理员您现在是否还很不舒服。"
+ELDER_PIPELINE_TIMEOUT_SECONDS = 6.5
 logger = logging.getLogger(__name__)
 
 STAFF_STATUS_LABELS = {
@@ -104,6 +107,27 @@ def create_app() -> Flask:
             state = process_elder_report_turn(state, resident.resident_id, user_input)
         return render_template("elder.html", **_build_elder_view_model(state))
 
+    @app.post("/api/elder/report")
+    def elder_report_api():
+        payload = request.get_json(silent=True) or {}
+        resident_id = str(payload.get("resident_id") or "").strip()
+        user_input = str(payload.get("message") or "").strip()
+        resident = _selected_resident()
+        if not user_input:
+            return jsonify({"ok": False, "error": "请先说说您哪里不舒服。"}), 400
+        if resident is None or not resident_id or resident.resident_id != resident_id:
+            return jsonify({"ok": False, "error": "请先确认您是哪位。"}), 400
+
+        state = process_elder_report_turn(_get_or_create_state(), resident_id, user_input)
+        event = get_latest_event_for_resident(resident_id)
+        return jsonify({
+            "ok": True,
+            "elder_response": state.elder_display_response or SAFE_ELDER_FALLBACK,
+            "pending_field": state.pending_field,
+            "active_observation": state.active_observation,
+            "event_id": event.event_id if event else None,
+        })
+
     @app.get("/staff")
     def staff() -> str:
         return render_template("staff.html", **_build_product_view_model())
@@ -161,7 +185,7 @@ def process_elder_report_turn(
     used_workflow = "active_observation"
     original_turn_count = state.turn_count
     try:
-        state, _output = run_pipeline(state.session_id, user_input, state)
+        state, _output = _run_pipeline_bounded(state, user_input)
         if not state.active_observation:
             raise ValueError("pipeline did not produce an active observation")
 
@@ -207,6 +231,40 @@ def process_elder_report_turn(
         elder_response[:80],
     )
     return state
+
+
+def _run_pipeline_bounded(state: CaseState, user_input: str):
+    """Bound elder pipeline latency, then retry deterministically on a clean state copy."""
+    original = state.model_copy(deep=True)
+    executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="elder-pipeline")
+    future = executor.submit(
+        run_pipeline,
+        original.session_id,
+        user_input,
+        original.model_copy(deep=True),
+    )
+    try:
+        return future.result(timeout=ELDER_PIPELINE_TIMEOUT_SECONDS)
+    except PipelineTimeoutError:
+        logger.info("elder pipeline exceeded %.1fs; using deterministic fallback", ELDER_PIPELINE_TIMEOUT_SECONDS)
+        future.cancel()
+        with force_local_providers():
+            return run_pipeline(
+                original.session_id,
+                user_input,
+                original.model_copy(deep=True),
+            )
+    except Exception as exc:
+        logger.info("elder pipeline failed with %s; using deterministic fallback", type(exc).__name__)
+        future.cancel()
+        with force_local_providers():
+            return run_pipeline(
+                original.session_id,
+                user_input,
+                original.model_copy(deep=True),
+            )
+    finally:
+        executor.shutdown(wait=False, cancel_futures=True)
 
 
 def _active_workflow_question(state: CaseState) -> str | None:

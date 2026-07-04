@@ -1,6 +1,9 @@
 ﻿# SPDX-License-Identifier: MIT
 from __future__ import annotations
 
+import threading
+import time
+
 from core import product_store
 from core.session import delete_session, load_session
 from core.types import CaseState
@@ -197,6 +200,81 @@ def test_real_elder_route_renders_active_observation_responses(monkeypatch, tmp_
     assert saved.observation_extraction["elder_display_response"] == saved.elder_display_response
 
 
+def test_elder_report_api_returns_active_workflow_json(monkeypatch, tmp_path) -> None:
+    monkeypatch.setattr(product_store, "PRODUCT_DATA_DIR", tmp_path / ".product_data")
+    app = create_app()
+    app.config["TESTING"] = True
+    client = app.test_client()
+    client.get("/elder")
+    _select_demo_resident(client)
+    resident = product_store.get_demo_resident()
+
+    response = client.post(
+        "/api/elder/report",
+        json={"resident_id": resident.resident_id, "message": "我早上起来突然肚子非常痛"},
+    )
+    payload = response.get_json()
+
+    assert response.status_code == 200
+    assert payload["ok"] is True
+    assert "肚子具体哪个位置最痛" in payload["elder_response"]
+    assert payload["pending_field"] == "body_location"
+    assert payload["active_observation"]["domain"] == "abdominal_digestive"
+    assert payload["event_id"]
+
+
+def test_elder_report_api_times_out_to_local_pipeline(monkeypatch, tmp_path) -> None:
+    monkeypatch.setattr(product_store, "PRODUCT_DATA_DIR", tmp_path / ".product_data")
+    monkeypatch.setattr(web, "ELDER_PIPELINE_TIMEOUT_SECONDS", 0.01)
+    real_run_pipeline = web.run_pipeline
+
+    def slow_worker_only(*args, **kwargs):
+        if threading.current_thread().name.startswith("elder-pipeline"):
+            time.sleep(0.3)
+        return real_run_pipeline(*args, **kwargs)
+
+    monkeypatch.setattr(web, "run_pipeline", slow_worker_only)
+    app = create_app()
+    app.config["TESTING"] = True
+    client = app.test_client()
+    client.get("/elder")
+    _select_demo_resident(client)
+    resident = product_store.get_demo_resident()
+
+    started = time.monotonic()
+    response = client.post(
+        "/api/elder/report",
+        json={"resident_id": resident.resident_id, "message": "昨晚没睡好"},
+    )
+    elapsed = time.monotonic() - started
+    payload = response.get_json()
+
+    assert elapsed < 0.25
+    assert response.status_code == 200
+    assert payload["ok"] is True
+    assert "睡不好可能和" in payload["elder_response"]
+
+
+def test_elder_page_contains_async_feedback_and_html_fallback(monkeypatch, tmp_path) -> None:
+    monkeypatch.setattr(product_store, "PRODUCT_DATA_DIR", tmp_path / ".product_data")
+    app = create_app()
+    app.config["TESTING"] = True
+    client = app.test_client()
+    client.get("/elder")
+    _select_demo_resident(client)
+
+    html = client.get("/elder").get_data(as_text=True)
+    script = client.get("/static/elder.js").get_data(as_text=True)
+
+    assert 'action="/elder/report"' in html
+    assert 'data-api-url="/api/elder/report"' in html
+    assert "正在帮您记录，请稍等……" in script
+    assert "还在整理，请稍等。如果现在很不舒服，请先叫护理员。" in script
+    assert "网络有点慢，如果现在很不舒服，请马上叫护理员。" in script
+    assert "8000" in script
+    assert "15000" in script
+
+
 def test_elder_route_uses_safe_fallback_not_legacy_question(monkeypatch, tmp_path) -> None:
     monkeypatch.setattr(product_store, "PRODUCT_DATA_DIR", tmp_path / ".product_data")
     monkeypatch.setattr(web, "run_pipeline", lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("failed")))
@@ -210,6 +288,16 @@ def test_elder_route_uses_safe_fallback_not_legacy_question(monkeypatch, tmp_pat
 
     assert SAFE_ELDER_FALLBACK in html
     assert "麻木、没力、动作不灵活" not in html
+
+    resident = product_store.get_demo_resident()
+    api_response = client.post(
+        "/api/elder/report",
+        json={"resident_id": resident.resident_id, "message": "我肩膀还是疼"},
+    )
+    payload = api_response.get_json()
+    assert api_response.status_code == 200
+    assert payload["ok"] is True
+    assert payload["elder_response"] == SAFE_ELDER_FALLBACK
 
 
 def test_report_waits_for_resident_identity_before_pipeline(monkeypatch, tmp_path) -> None:

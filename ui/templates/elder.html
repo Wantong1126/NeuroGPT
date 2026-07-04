@@ -45,31 +45,22 @@
         <h2 id="report-heading">今天哪里不舒服，或者有什么想告诉护理员/家人？</h2>
         <p class="intro">可以直接说身体、睡眠、心情、行动、说话、记忆上的变化。</p>
 
-        {% if messages %}
-          <div class="transcript" aria-label="状态记录对话">
-            {% for message in messages %}
-              <article class="turn user-turn">
-                <div class="turn-label">我</div>
-                <div class="turn-body">{{ message.content }}</div>
-              </article>
-            {% endfor %}
-            {% if elder_display_response %}
-              <article class="turn assistant-turn">
-                <div class="turn-label">NeuroGPT</div>
-                <div class="turn-body">{{ elder_display_response }}</div>
-              </article>
-            {% endif %}
-          </div>
-        {% elif elder_display_response %}
-          <div class="transcript" aria-label="状态记录对话">
+        <div id="elder-transcript" class="transcript" aria-label="状态记录对话" aria-live="polite">
+          {% for message in messages %}
+            <article class="turn user-turn">
+              <div class="turn-label">我</div>
+              <div class="turn-body">{{ message.content }}</div>
+            </article>
+          {% endfor %}
+          {% if elder_display_response %}
             <article class="turn assistant-turn">
               <div class="turn-label">NeuroGPT</div>
               <div class="turn-body">{{ elder_display_response }}</div>
             </article>
-          </div>
-        {% endif %}
+          {% endif %}
+        </div>
 
-        <form class="composer" method="post" action="{{ url_for('elder_report') }}">
+        <form id="elder-report-form" class="composer" method="post" action="{{ url_for('elder_report') }}" data-api-url="{{ url_for('elder_report_api') }}" data-resident-id="{{ selected_resident.resident_id }}">
           <label for="user_input">请在这里说</label>
           <div class="input-row">
             <textarea id="user_input" name="user_input" required placeholder="例如：今天头有点痛，昨晚没睡好。">{{ draft_report }}</textarea>
@@ -82,5 +73,6 @@
       </section>
     {% endif %}
   </main>
+  <script defer src="{{ url_for('static', filename='elder.js') }}"></script>
 </body>
 </html>

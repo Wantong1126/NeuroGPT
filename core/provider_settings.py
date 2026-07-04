@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 from copy import deepcopy
+from contextlib import contextmanager
+from contextvars import ContextVar
 
 from core.config_loader import load_yaml_config
 
@@ -24,6 +26,7 @@ DEFAULT_PROVIDER_CONFIG = {
         "model": "",
     },
 }
+_FORCE_LOCAL_PROVIDER: ContextVar[bool] = ContextVar("force_local_provider", default=False)
 
 
 
@@ -48,6 +51,8 @@ def load_provider_config() -> dict:
 
 
 def get_provider(module_name: str) -> str:
+    if _FORCE_LOCAL_PROVIDER.get():
+        return "heuristic"
     config = load_provider_config()
     return config.get(module_name, {}).get("provider", "heuristic")
 
@@ -65,3 +70,13 @@ def get_provider_base_url(module_name: str) -> str:
 def get_provider_model(module_name: str) -> str:
     settings = get_provider_settings(module_name)
     return str(settings.get("model") or "")
+
+
+@contextmanager
+def force_local_providers():
+    """Temporarily force deterministic providers in the current execution context."""
+    token = _FORCE_LOCAL_PROVIDER.set(True)
+    try:
+        yield
+    finally:
+        _FORCE_LOCAL_PROVIDER.reset(token)
