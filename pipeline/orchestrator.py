@@ -19,6 +19,10 @@ from modules.observation_extractor_llm import (
     extract_observation_details,
     format_observation_elder_response,
 )
+from modules.observation_state_merger import (
+    merge_observation_turn,
+    plan_next_observation_question,
+)
 from modules.question_manager import decide_question
 from modules.response_builder import (
     ACTION_LABELS,
@@ -129,12 +133,40 @@ def run_pipeline(session_id: str, user_input: str, state: CaseState | None = Non
     if state is None:
         state = new_case(session_id=session_id)
 
+    previous_question = state.pending_question
+    previous_pending_field = state.pending_field
+    previous_active_observation = state.active_observation.copy()
     state = merge_turn(state, user_input)
     state.hesitation_flags = detect_hesitation(state)
+
+    if previous_active_observation and previous_pending_field:
+        merged_observation = merge_observation_turn(
+            previous_active_observation,
+            user_input,
+            previous_question,
+            previous_pending_field,
+        )
+        if merged_observation.pop("topic_changed", False):
+            merged_observation.pop("is_answer_to_pending", None)
+            state.observation_history.append(merged_observation)
+            state.active_observation = {}
+            state.pending_question = None
+            state.pending_field = None
+            state.pending_field_options = []
+            state.answered_fields = {}
+        elif merged_observation.pop("is_answer_to_pending", False):
+            state.active_observation = merged_observation
+            state.answered_fields = merged_observation.get("answered_fields", {}).copy()
+            _apply_deterministic_assessment(state)
+            return _finish_abdominal_observation_turn(state)
+
     observation_extraction = extract_observation_details(state.raw_user_input)
-    state.observation_extraction = observation_extraction.model_dump(mode="json")
+    _activate_extracted_observation(state, observation_extraction)
 
     _apply_deterministic_assessment(state)
+
+    if state.active_observation.get("domain") == "abdominal_digestive":
+        return _finish_abdominal_observation_turn(state, initial_turn=True)
 
     deterministic_question = decide_question(state)
     extracted_question = _extracted_next_question(observation_extraction)
@@ -195,6 +227,120 @@ def run_pipeline(session_id: str, user_input: str, state: CaseState | None = Non
         disclaimer=elder_response.disclaimer,
     )
     return state, output
+
+
+def _activate_extracted_observation(
+    state: CaseState,
+    extraction: ObservationExtractionResult,
+) -> None:
+    if not extraction.observations:
+        state.observation_extraction = extraction.model_dump(mode="json")
+        return
+    active = extraction.observations[0].model_dump(mode="json")
+    active["answer_history"] = []
+    active["answered_fields"] = {}
+    state.active_observation = active
+    state.answered_fields = {}
+    state.observation_extraction = extraction.model_dump(mode="json")
+    state.observation_extraction["observations"] = [*state.observation_history, active]
+    state.observation_extraction["active_observation_state"] = active
+
+
+def _finish_abdominal_observation_turn(
+    state: CaseState,
+    *,
+    initial_turn: bool = False,
+) -> tuple[CaseState, PipelineOutput]:
+    active = state.active_observation
+    question, pending_field, options = plan_next_observation_question(active)
+    state.pending_question = question
+    state.pending_field = pending_field
+    state.pending_field_options = options
+    state.needs_follow_up_question = question is not None
+    state.follow_up_question = question
+
+    _sync_active_observation_extraction(state)
+    caregiver_summary = state.observation_extraction["recommended_staff_handoff"]
+    state.caregiver_summary = caregiver_summary
+
+    if question:
+        if initial_turn:
+            report = active.get("raw_quote", "").strip().rstrip("。.!！")
+            if report.startswith("我"):
+                report = report[1:].lstrip("，, ")
+            assistant_text = f"我听到您说{report}。我先帮您记下来。请您再告诉我：{question}"
+        else:
+            assistant_text = f"已记录：{_abdominal_known_summary(active)}。请您再告诉我：{question}"
+    else:
+        assistant_text = "我已经帮您把情况记录下来了，会提醒护理员尽快确认。"
+
+    if state.action_level.value in ESCALATION_ACTIONS:
+        urgent_text = "请马上叫护理员过来看一下。"
+        if urgent_text not in assistant_text:
+            assistant_text = f"{assistant_text}{urgent_text}"
+
+    state.observation_extraction["recommended_elder_response"] = assistant_text
+    state.user_message = assistant_text
+    state.add_assistant_message(assistant_text)
+    return state, PipelineOutput(
+        needs_follow_up_question=question is not None,
+        follow_up_question=question,
+        concern_level=state.concern_level.value,
+        action_level=state.action_level.value,
+        user_message=assistant_text,
+        caregiver_summary=caregiver_summary,
+        guidance_snippets=[],
+        disclaimer=None,
+    )
+
+
+def _sync_active_observation_extraction(state: CaseState) -> None:
+    active = state.active_observation
+    active["missing_information"] = _abdominal_missing_information(active)
+    active["answer_history"] = active.get("answer_history", [])
+    active["answered_fields"] = active.get("answered_fields", {})
+    observations = [*state.observation_history, active]
+    state.observation_extraction = {
+        "observations": observations,
+        "active_observation_state": active,
+        "overall_plain_summary": _abdominal_known_summary(active),
+        "recommended_elder_response": state.user_message,
+        "recommended_staff_handoff": _abdominal_staff_handoff(active),
+        "recommended_family_summary_after_confirmation": (
+            "老人反映腹部不适，护理员将确认具体情况并继续关注。"
+        ),
+    }
+
+
+def _abdominal_known_summary(observation: dict) -> str:
+    location = observation.get("body_location") or "腹部"
+    quality = (observation.get("sensation_quality") or "不舒服").replace("、", "和")
+    return f"{location}{quality}"
+
+
+def _abdominal_missing_information(observation: dict) -> list[str]:
+    missing = []
+    if not observation.get("body_location"):
+        missing.append("腹部具体位置")
+    if not observation.get("sensation_quality"):
+        missing.append("痛、胀、绞痛、烧心或恶心等感觉")
+    if not observation.get("duration"):
+        missing.append("持续多久")
+    if not observation.get("severity") or not observation.get("progression"):
+        missing.append("是否加重及对走路、吃饭或说话的影响")
+    if not observation.get("associated_symptoms_checked"):
+        missing.append("是否伴随发热、呕吐、腹泻、胸闷气短、黑便或血便等")
+    return missing
+
+
+def _abdominal_staff_handoff(observation: dict) -> str:
+    answers = [entry.get("answer", "") for entry in observation.get("answer_history", []) if entry.get("answer")]
+    added = "；".join(answers) or "暂无补充"
+    missing = "、".join(_abdominal_missing_information(observation)) or "无"
+    return (
+        f"老人原话：{observation.get('raw_quote', '')}。"
+        f"已补充：{added}。仍需确认：{missing}。建议护理员尽快查看老人。"
+    )
 
 
 def _apply_deterministic_assessment(state: CaseState) -> None:

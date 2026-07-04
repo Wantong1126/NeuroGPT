@@ -166,13 +166,37 @@ def create_care_event_from_state(
     raw_report: str,
     source: CareEventSource | str = CareEventSource.ELDER,
 ) -> CareEvent:
-    """Persist a care event snapshot from the current pipeline state."""
+    """Persist a care event snapshot, updating an active multi-turn observation."""
     _validate_id(resident_id)
+    event_source = CareEventSource(source)
+    original_report = state.active_observation.get("raw_quote") or raw_report
+    if state.active_observation:
+        existing = next(
+            (
+                event
+                for event in list_events_for_resident(resident_id)
+                if event.case_session_id == state.session_id
+                and event.source == event_source
+                and event.raw_report == original_report
+                and event.staff_status == StaffStatus.PENDING_CONFIRMATION
+            ),
+            None,
+        )
+        if existing is not None:
+            existing.action_level = state.action_level.value
+            existing.concern_level = state.concern_level.value
+            existing.needs_follow_up = state.needs_follow_up_question
+            existing.follow_up_question = state.follow_up_question
+            existing.caregiver_summary = state.caregiver_summary or ""
+            existing.observation_extraction = state.observation_extraction
+            _write_record(_record_path(_events_dir(), existing.event_id), existing)
+            return existing
+
     event = CareEvent(
         event_id=f"event_{uuid4().hex}",
         resident_id=resident_id,
-        source=source,
-        raw_report=raw_report,
+        source=event_source,
+        raw_report=original_report,
         created_at=datetime.now(timezone.utc),
         case_session_id=state.session_id,
         action_level=state.action_level.value,

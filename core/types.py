@@ -215,6 +215,12 @@ class CaseState(BaseModel):
     # Extracted symptom fields
     symptoms_detected: ExtractedSymptoms = Field(default_factory=ExtractedSymptoms)
     observation_extraction: dict[str, Any] = Field(default_factory=dict)
+    active_observation: dict[str, Any] = Field(default_factory=dict)
+    observation_history: list[dict[str, Any]] = Field(default_factory=list)
+    pending_question: Optional[str] = None
+    pending_field: Optional[str] = None
+    pending_field_options: list[str] = Field(default_factory=list)
+    answered_fields: dict[str, Any] = Field(default_factory=dict)
 
     # Core clinical dimensions (mirrors ExtractedSymptoms for fast access)
     onset: Onset = Onset.UNKNOWN

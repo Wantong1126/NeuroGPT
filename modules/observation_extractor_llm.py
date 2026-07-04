@@ -2,6 +2,8 @@
 """Fine-grained elder observation extraction with an OpenAI-compatible backend."""
 from __future__ import annotations
 
+import re
+
 from pydantic import BaseModel, Field
 
 from core.llm import call_structured
@@ -28,7 +30,7 @@ SCHEMA = """
 {
   "observations": [{
     "raw_quote": "老人原话",
-    "domain": "sleep | pain | mood | mobility | cognition | speech | appetite | digestion | breathing_chest | urinary | skin | medication | sensory | general",
+    "domain": "sleep | pain | abdominal_digestive | mood | mobility | cognition | speech | appetite | digestion | breathing_chest | urinary | skin | medication | sensory | general",
     "specific_problem": "具体问题",
     "body_location": null,
     "sensation_quality": null,
@@ -145,6 +147,29 @@ def _validate_result(
 
 def _heuristic_extraction(raw_report: str) -> ObservationExtractionResult:
     text = (raw_report or "").strip()
+    if _is_abdominal_report(text):
+        detail = ObservationDetail(
+            raw_quote=text,
+            domain="abdominal_digestive",
+            specific_problem="腹部不适/腹痛",
+            body_location=_abdominal_location(text),
+            sensation_quality=_abdominal_quality(text),
+            time_reference=_abdominal_time_reference(text),
+            onset="突然" if "突然" in text else None,
+            duration=_duration_from_text(text),
+            severity=_severity_from_text(text),
+            missing_information=["腹部具体位置", "不舒服的感觉", "持续多久", "是否加重", "是否伴随其他不适"],
+            next_best_question="肚子具体哪个位置最痛？是上腹、肚脐周围、下腹，还是左右某一边？",
+            staff_checklist=["查看腹部不适位置和程度", "确认持续时间及是否加重", "询问进食、排便及伴随不适"],
+            family_safe_summary="老人反映腹部不适，护理员将尽快确认具体位置、持续时间和伴随情况。",
+            red_flag_checks_needed=[
+                "持续加重或剧烈腹痛", "发热", "呕吐", "腹泻", "黑便/血便",
+                "胸闷/胸痛/气短/出汗", "晕厥", "近期跌倒或外伤", "腹部明显变硬", "无法进食/喝水",
+            ],
+            confidence="fallback",
+        )
+        return _result_from_detail(detail)
+
     if _has_any(text, ("睡不好", "睡不着", "没睡好", "醒很多次", "半夜醒")):
         detail = ObservationDetail(
             raw_quote=text,
@@ -342,6 +367,57 @@ def _truncate_question(question: str, length: int) -> str:
 def _is_shoulder_back_soreness(text: str) -> bool:
     has_location = _has_any(text, ("肩膀", "肩", "背", "腰", "胳膊", "腿", "关节", "肌肉"))
     return has_location and _has_any(text, ("酸", "酸痛", "疼", "痛"))
+
+
+def _is_abdominal_report(text: str) -> bool:
+    return _has_any(text, ("肚子痛", "肚子疼", "腹痛", "胃痛", "上腹痛", "下腹痛", "肚子胀", "胃胀", "恶心", "拉肚子")) or (
+        _has_any(text, ("肚子", "腹", "胃")) and _has_any(text, ("痛", "疼", "胀"))
+    )
+
+
+def _abdominal_location(text: str) -> str | None:
+    for term in ("上腹", "肚脐周围", "下腹", "左侧腹部", "右侧腹部"):
+        if term in text:
+            return term
+    return None
+
+
+def _abdominal_quality(text: str) -> str | None:
+    # A bare complaint of pain still needs the pain/pressure/burning distinction.
+    qualities = []
+    for normalized, terms in (
+        ("绞着痛", ("绞着痛", "绞痛")),
+        ("烧心", ("烧心",)),
+        ("胀", ("胀",)),
+        ("恶心想吐", ("恶心", "想吐")),
+    ):
+        if any(term in text for term in terms):
+            qualities.append(normalized)
+    if qualities and "绞着痛" not in qualities and _has_any(text, ("痛", "疼")):
+        qualities.insert(0, "痛")
+    return "、".join(qualities) or None
+
+
+def _abdominal_time_reference(text: str) -> str | None:
+    if "今天早上" in text or "今早" in text:
+        return "今天早上"
+    if "早上" in text:
+        return "早上"
+    if "刚刚" in text or "刚才" in text:
+        return "刚刚"
+    return None
+
+
+def _duration_from_text(text: str) -> str | None:
+    match = re.search(r"(?:刚刚开始|刚才开始|\d+[个]?(?:分钟|小时|天)|[一两半]+(?:小时|天|早上))", text)
+    return match.group(0) if match else None
+
+
+def _severity_from_text(text: str) -> str | None:
+    for term in ("非常痛", "特别痛", "剧烈", "很痛", "能忍", "还好"):
+        if term in text:
+            return term
+    return None
 
 
 def _has_any(text: str, phrases: tuple[str, ...]) -> bool:
