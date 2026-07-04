@@ -8,6 +8,7 @@ from pydantic import BaseModel, Field
 
 from core.llm import call_structured
 from core.provider_settings import get_provider, get_provider_base_url, get_provider_model
+from modules.elder_observation_response_renderer import render_elder_observation_response
 
 SYSTEM_PROMPT = """
 You are helping an elder-care status reporting system.
@@ -32,6 +33,8 @@ SCHEMA = """
     "raw_quote": "老人原话",
     "domain": "sleep | pain | abdominal_digestive | mood | mobility | cognition | speech | appetite | digestion | breathing_chest | urinary | skin | medication | sensory | general",
     "specific_problem": "具体问题",
+    "possible_reasons_plain": null,
+    "why_this_matters": null,
     "body_location": null,
     "sensation_quality": null,
     "time_reference": null,
@@ -66,6 +69,8 @@ class ObservationDetail(BaseModel):
     raw_quote: str
     domain: str
     specific_problem: str
+    possible_reasons_plain: str | None = None
+    why_this_matters: str | None = None
     body_location: str | None = None
     sensation_quality: str | None = None
     time_reference: str | None = None
@@ -293,75 +298,16 @@ def format_observation_elder_response(
     include_question: bool = True,
     max_chars: int | None = 220,
 ) -> str:
-    """Render one concrete, non-diagnostic elder response from ObservationDetail."""
-    report = _display_report(detail.raw_quote or detail.specific_problem)
-    acknowledgement = f"我听到您说{report}。"
-    explanation = _plain_common_reasons(detail)
-
-    question_text = ""
-    if include_question:
-        planned_question = _truncate_question(_single_question(question or detail.next_best_question), 110)
-        prompt = "请您告诉我：" if detail.domain == "mood" else "请您再告诉我："
-        question_text = f"{prompt}{planned_question}"
-
-    response = f"{acknowledgement}{explanation}{question_text}"
-    if max_chars is None or len(response) <= max_chars:
-        return response
-
-    # Long free-form reports must not push the useful question off screen.
-    report = _truncate(report, 48)
-    acknowledgement = f"我听到您说{report}。"
-    available = max_chars - len(acknowledgement) - len(question_text)
-    compact_explanation = _truncate(explanation, max(0, available)) if available else ""
-    return f"{acknowledgement}{compact_explanation}{question_text}"[:max_chars]
-
-
-def _plain_common_reasons(detail: ObservationDetail) -> str:
-    problem = detail.specific_problem
-    location = detail.body_location or ""
-    intent = detail.elder_intent or ""
-
-    if detail.domain == "sleep" or "睡" in problem:
-        return "睡不好可能和起夜、身体不舒服、心里惦记事、白天活动少或环境影响有关。"
-    if detail.domain == "pain" and (
-        any(part in location for part in ("肩", "背", "腰", "胳膊", "腿", "关节", "肌肉"))
-        or any(part in problem for part in ("肩", "背", "腰", "肌肉酸"))
-    ):
-        return "这可能和睡姿、久坐、活动后肌肉酸痛或受凉有关，也要确认有没有摔倒或突然加重。"
-    if detail.domain == "mood" and ("不想麻烦" in intent or "不想麻烦" in detail.raw_quote):
-        return "很多老人身体不舒服时会先忍着，但护理员知道后才能更好照顾您。"
-    if detail.domain == "sensory" and ("麻" in problem or "麻" in detail.raw_quote):
-        return "手麻有时和姿势压迫、手臂劳累或受凉有关，也要确认是不是突然出现。"
-    if detail.domain == "pain" and (location == "头部" or "头痛" in problem or "头疼" in detail.raw_quote):
-        return "头痛有时和休息不好、紧张或受凉有关，也要确认是不是突然加重或伴有其他不舒服。"
-    return "我先帮您把这个具体情况记下来，还需要再了解一点。"
-
-
-def _display_report(report: str) -> str:
-    text = report.strip().rstrip("。.!！")
-    if text.startswith("我") and len(text) > 1:
-        text = text[1:].lstrip("，, ")
-    return text or "有些不舒服"
-
-
-def _single_question(question: str) -> str:
-    text = question.strip().rstrip("。.!！?？")
-    text = text.replace("？", "，").replace("?", "，")
-    return f"{text.rstrip('，, ')}？"
-
-
-def _truncate(text: str, length: int) -> str:
-    if length <= 0:
-        return ""
-    if len(text) <= length:
-        return text
-    return f"{text[:max(1, length - 1)].rstrip('，,；; ')}…"
-
-
-def _truncate_question(question: str, length: int) -> str:
-    if len(question) <= length:
-        return question
-    return f"{question[:max(1, length - 1)].rstrip('，,；;。.!！？? ')}？"
+    """Compatibility wrapper around the unified accumulated-observation renderer."""
+    response = render_elder_observation_response(
+        detail.model_dump(mode="json"),
+        detail.raw_quote,
+        question or detail.next_best_question if include_question else None,
+        response_mode="initial" if include_question else "complete",
+    )
+    if max_chars is not None and len(response) > max_chars:
+        return response[:max_chars]
+    return response
 
 
 def _is_shoulder_back_soreness(text: str) -> bool:

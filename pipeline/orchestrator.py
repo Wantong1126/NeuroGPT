@@ -14,10 +14,10 @@ from core.types import (
 from modules.action_mapper import map_to_action
 from modules.concern_estimator import estimate_concern
 from modules.hesitation_detector import detect_hesitation
+from modules.elder_observation_response_renderer import render_elder_observation_response
 from modules.observation_extractor_llm import (
     ObservationExtractionResult,
     extract_observation_details,
-    format_observation_elder_response,
 )
 from modules.observation_state_merger import (
     merge_observation_turn,
@@ -175,10 +175,12 @@ def run_pipeline(session_id: str, user_input: str, state: CaseState | None = Non
         state.needs_follow_up_question = True
         state.follow_up_question = question
         elder_response = build_clarification_response(state, question)
-        assistant_text = _build_observation_elder_text(
-            observation_extraction,
+        assistant_text = render_elder_observation_response(
+            state.active_observation,
+            user_input,
             question,
             state.action_level.value,
+            "urgent" if state.action_level.value in ESCALATION_ACTIONS else "initial",
         )
         state.user_message = assistant_text
         state.caregiver_summary = elder_response.caregiver_summary
@@ -200,10 +202,12 @@ def run_pipeline(session_id: str, user_input: str, state: CaseState | None = Non
 
     elder_response = build_response(state)
     assistant_text = _build_explained_action_text(
-        _build_observation_elder_text(
-            observation_extraction,
+        render_elder_observation_response(
+            state.active_observation,
+            user_input,
             None,
             state.action_level.value,
+            "urgent" if state.action_level.value in ESCALATION_ACTIONS else "complete",
         ),
         elder_response.key_signs_summary,
         elder_response.guidance_snippets,
@@ -263,21 +267,19 @@ def _finish_abdominal_observation_turn(
     caregiver_summary = state.observation_extraction["recommended_staff_handoff"]
     state.caregiver_summary = caregiver_summary
 
-    if question:
-        if initial_turn:
-            report = active.get("raw_quote", "").strip().rstrip("。.!！")
-            if report.startswith("我"):
-                report = report[1:].lstrip("，, ")
-            assistant_text = f"我听到您说{report}。我先帮您记下来。请您再告诉我：{question}"
-        else:
-            assistant_text = f"已记录：{_abdominal_known_summary(active)}。请您再告诉我：{question}"
-    else:
-        assistant_text = "我已经帮您把情况记录下来了，会提醒护理员尽快确认。"
-
     if state.action_level.value in ESCALATION_ACTIONS:
-        urgent_text = "请马上叫护理员过来看一下。"
-        if urgent_text not in assistant_text:
-            assistant_text = f"{assistant_text}{urgent_text}"
+        response_mode = "urgent"
+    elif not question:
+        response_mode = "complete"
+    else:
+        response_mode = "initial" if initial_turn else "merge"
+    assistant_text = render_elder_observation_response(
+        active,
+        state.raw_user_input,
+        question,
+        state.action_level.value,
+        response_mode,
+    )
 
     state.observation_extraction["recommended_elder_response"] = assistant_text
     state.user_message = assistant_text
@@ -361,33 +363,6 @@ def _extracted_next_question(extraction: ObservationExtractionResult) -> str | N
         if observation.next_best_question.strip():
             return observation.next_best_question.strip()
     return None
-
-
-def _build_observation_elder_text(
-    extraction: ObservationExtractionResult,
-    question: str | None,
-    action_level: str,
-) -> str:
-    observation = extraction.observations[0] if extraction.observations else None
-    if observation:
-        response = format_observation_elder_response(
-            observation,
-            question,
-            include_question=bool(question),
-            max_chars=None if action_level in ESCALATION_ACTIONS else 220,
-        )
-    elif question:
-        quote = extraction.overall_plain_summary.rstrip("。.!！")
-        response = f"我听到您说{quote}。请您再告诉我：{question}"
-    else:
-        quote = extraction.overall_plain_summary.rstrip("。.!！")
-        response = f"我听到您说{quote}。我已经记录下来了。"
-
-    if action_level in {"emergency_now", "same_day_review"}:
-        urgent_text = "请马上叫护理员过来看一下。"
-        if urgent_text not in response:
-            response = f"{response}{urgent_text}"
-    return response
 
 
 def _build_explained_action_text(

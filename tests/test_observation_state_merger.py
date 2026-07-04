@@ -11,12 +11,16 @@ def test_abdominal_answers_merge_into_one_active_observation() -> None:
     state, first = run_pipeline("abdominal-flow", "我早上起来突然肚子非常痛")
 
     assert state.pending_field == "body_location"
+    assert "肚子突然明显疼痛" in first.user_message
+    assert any(reason in first.user_message for reason in ("胃肠不适", "饮食", "胀气"))
     assert "具体哪个位置最痛" in (first.follow_up_question or "")
 
     state, second = run_pipeline("abdominal-flow", "上腹", state)
     assert state.active_observation["body_location"] == "上腹"
     assert state.pending_field == "sensation_quality"
     assert "更像是痛、胀" in (second.follow_up_question or "")
+    assert any(reason in second.user_message for reason in ("胃部不适", "消化不良", "胀气"))
+    assert second.user_message != f"已记录：上腹不舒服。请您再告诉我：{second.follow_up_question}"
     assert "哪里痛" not in second.user_message
 
     state, third = run_pipeline("abdominal-flow", "痛和胀", state)
@@ -25,6 +29,7 @@ def test_abdominal_answers_merge_into_one_active_observation() -> None:
     assert state.active_observation["sensation_quality"] == "痛、胀"
     assert state.pending_field == "duration"
     assert "持续多久" in (third.follow_up_question or "")
+    assert any(reason in third.user_message for reason in ("胃部不适", "消化不良", "胀气"))
     assert "哪里痛" not in third.user_message
     assert state.active_observation["answer_history"] == [
         {"field": "body_location", "answer": "上腹"},
@@ -63,7 +68,9 @@ def test_abdominal_flow_stops_after_required_fields_are_checked() -> None:
 
     assert state.pending_field is None
     assert output.needs_follow_up_question is False
-    assert output.user_message == "我已经帮您把情况记录下来了，会提醒护理员尽快确认。"
+    assert "已记录：上腹痛和胀" in output.user_message
+    assert "胃部不适" in output.user_message
+    assert "会提醒护理员尽快确认" in output.user_message
     assert state.active_observation["associated_symptoms_checked"] is True
 
 
