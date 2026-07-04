@@ -20,6 +20,7 @@ from modules.observation_extractor_llm import (
     extract_observation_details,
 )
 from modules.observation_state_merger import (
+    is_musculoskeletal_observation,
     merge_observation_turn,
     plan_next_observation_question,
 )
@@ -158,15 +159,18 @@ def run_pipeline(session_id: str, user_input: str, state: CaseState | None = Non
             state.active_observation = merged_observation
             state.answered_fields = merged_observation.get("answered_fields", {}).copy()
             _apply_deterministic_assessment(state)
-            return _finish_abdominal_observation_turn(state)
+            return _finish_structured_observation_turn(state)
 
     observation_extraction = extract_observation_details(state.raw_user_input)
     _activate_extracted_observation(state, observation_extraction)
 
     _apply_deterministic_assessment(state)
 
-    if state.active_observation.get("domain") == "abdominal_digestive":
-        return _finish_abdominal_observation_turn(state, initial_turn=True)
+    if (
+        state.active_observation.get("domain") == "abdominal_digestive"
+        or is_musculoskeletal_observation(state.active_observation)
+    ):
+        return _finish_structured_observation_turn(state, initial_turn=True)
 
     deterministic_question = decide_question(state)
     extracted_question = _extracted_next_question(observation_extraction)
@@ -250,7 +254,7 @@ def _activate_extracted_observation(
     state.observation_extraction["active_observation_state"] = active
 
 
-def _finish_abdominal_observation_turn(
+def _finish_structured_observation_turn(
     state: CaseState,
     *,
     initial_turn: bool = False,
@@ -298,25 +302,40 @@ def _finish_abdominal_observation_turn(
 
 def _sync_active_observation_extraction(state: CaseState) -> None:
     active = state.active_observation
-    active["missing_information"] = _abdominal_missing_information(active)
+    is_musculoskeletal = is_musculoskeletal_observation(active)
+    active["missing_information"] = (
+        _musculoskeletal_missing_information(active)
+        if is_musculoskeletal
+        else _abdominal_missing_information(active)
+    )
     active["answer_history"] = active.get("answer_history", [])
     active["answered_fields"] = active.get("answered_fields", {})
     observations = [*state.observation_history, active]
     state.observation_extraction = {
         "observations": observations,
         "active_observation_state": active,
-        "overall_plain_summary": _abdominal_known_summary(active),
+        "overall_plain_summary": _known_observation_summary(active),
         "recommended_elder_response": state.user_message,
-        "recommended_staff_handoff": _abdominal_staff_handoff(active),
+        "recommended_staff_handoff": (
+            _musculoskeletal_staff_handoff(active)
+            if is_musculoskeletal
+            else _abdominal_staff_handoff(active)
+        ),
         "recommended_family_summary_after_confirmation": (
-            "老人反映腹部不适，护理员将确认具体情况并继续关注。"
+            "老人反映肩背或腰背不适，护理员将确认活动影响并继续关注。"
+            if is_musculoskeletal
+            else "老人反映腹部不适，护理员将确认具体情况并继续关注。"
         ),
     }
 
 
-def _abdominal_known_summary(observation: dict) -> str:
+def _known_observation_summary(observation: dict) -> str:
     location = observation.get("body_location") or "腹部"
     quality = (observation.get("sensation_quality") or "不舒服").replace("、", "和")
+    duration = observation.get("duration") or ""
+    if is_musculoskeletal_observation(observation):
+        location = location.replace("背部", "背").replace("腰部", "腰")
+        return f"{location}{quality}{duration}"
     return f"{location}{quality}"
 
 
@@ -342,6 +361,29 @@ def _abdominal_staff_handoff(observation: dict) -> str:
     return (
         f"老人原话：{observation.get('raw_quote', '')}。"
         f"已补充：{added}。仍需确认：{missing}。建议护理员尽快查看老人。"
+    )
+
+
+def _musculoskeletal_missing_information(observation: dict) -> list[str]:
+    missing = []
+    if not observation.get("body_location"):
+        missing.append("疼痛具体部位")
+    if not observation.get("sensation_quality"):
+        missing.append("是酸、胀、刺痛、抽痛还是僵硬")
+    if not observation.get("duration") and not observation.get("time_reference") and not observation.get("onset"):
+        missing.append("什么时候开始、持续多久")
+    if not observation.get("musculoskeletal_red_flags_checked"):
+        missing.append("是否摔倒、扭伤或持续加重")
+    return missing
+
+
+def _musculoskeletal_staff_handoff(observation: dict) -> str:
+    answers = [entry.get("answer", "") for entry in observation.get("answer_history", []) if entry.get("answer")]
+    added = "；".join(answers) or "暂无补充"
+    missing = "、".join(_musculoskeletal_missing_information(observation)) or "无"
+    return (
+        f"老人原话：{observation.get('raw_quote', '')}。已补充：{added}。仍需确认：{missing}。"
+        "请查看疼痛部位和性质，确认是否影响站立、走路、翻身或吃饭，并询问胸闷、气短、出汗、发热、麻木或无力。"
     )
 
 

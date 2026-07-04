@@ -197,21 +197,40 @@ def _heuristic_extraction(raw_report: str) -> ObservationExtractionResult:
         return _result_from_detail(detail)
 
     if _is_shoulder_back_soreness(text):
+        location = _musculoskeletal_location(text)
+        quality = _musculoskeletal_quality(text)
+        problem_quality = "酸痛" if quality == "酸" else quality
+        time_reference = _musculoskeletal_time_reference(text)
+        next_question = (
+            "今天有没有摔倒、扭到，或者疼痛是突然一下子很重？"
+            if time_reference and quality in {"痛", "刺痛", "抽着痛"}
+            else "这种酸痛是今天刚出现，还是已经有几天了？"
+        )
         detail = ObservationDetail(
             raw_quote=text,
             domain="pain",
-            specific_problem="肩膀和背部酸痛",
-            body_location="肩膀和背部",
-            sensation_quality="酸",
+            specific_problem=f"{location}{problem_quality}",
+            body_location=location,
+            sensation_quality=quality,
+            time_reference=time_reference,
+            onset=time_reference,
             missing_information=[
                 "是今天刚出现还是持续几天",
-                "是否活动后、久坐、受凉或睡姿有关",
-                "是否伴随胸闷、气短、出汗、摔倒或疼痛加重",
+                "是否摔倒、扭伤、搬重物、活动后加重",
+                "是否影响站立、走路、翻身、吃饭",
+                "是否伴随胸闷、气短、出汗、发热、麻木、无力",
             ],
-            next_best_question="这种酸痛是今天刚出现，还是已经有几天了？",
-            staff_checklist=["确认酸痛开始时间", "询问活动、久坐、受凉或睡姿", "观察活动是否受影响"],
-            family_safe_summary="老人反映肩膀和背部酸痛，护理员将确认持续时间、诱因及是否加重。",
-            red_flag_checks_needed=["胸闷", "气短", "出汗", "摔倒", "疼痛明显加重"],
+            next_best_question=next_question,
+            staff_checklist=[
+                "是否摔倒、扭伤、搬重物、活动后加重",
+                "疼痛部位：上背/下背/腰/肩颈/一侧",
+                "疼痛性质：酸、胀、刺痛、抽痛、僵硬",
+                "是否影响站立/走路/翻身/吃饭",
+                "是否伴随胸闷/气短/出汗/发热/麻木/无力",
+                "是否持续加重",
+            ],
+            family_safe_summary=f"老人反映{location}{quality}，护理员将确认持续时间、活动影响及是否加重。",
+            red_flag_checks_needed=["摔倒或扭伤", "胸闷", "气短", "出汗", "发热", "麻木", "无力", "疼痛持续加重"],
             confidence="fallback",
         )
         return _result_from_detail(detail)
@@ -313,8 +332,52 @@ def format_observation_elder_response(
 
 
 def _is_shoulder_back_soreness(text: str) -> bool:
-    has_location = _has_any(text, ("肩膀", "肩", "背", "腰", "胳膊", "腿", "关节", "肌肉"))
-    return has_location and _has_any(text, ("酸", "酸痛", "疼", "痛"))
+    has_location = _has_any(text, ("肩膀", "肩", "背", "腰", "脖子", "颈", "胳膊", "腿", "关节", "肌肉"))
+    return has_location and _has_any(text, ("酸", "酸痛", "疼", "痛", "僵", "僵硬"))
+
+
+def _musculoskeletal_location(text: str) -> str:
+    if _has_any(text, ("肩膀", "肩")) and "背" in text:
+        return "肩膀和背部"
+    for terms, normalized in (
+        (("上背",), "上背"),
+        (("下背",), "下背"),
+        (("背",), "背部"),
+        (("腰",), "腰部"),
+        (("脖子", "颈"), "肩颈"),
+        (("肩膀", "肩"), "肩膀"),
+        (("胳膊",), "胳膊"),
+        (("腿",), "腿部"),
+        (("关节",), "关节"),
+        (("肌肉",), "肌肉"),
+    ):
+        if any(term in text for term in terms):
+            return normalized
+    return "身体"
+
+
+def _musculoskeletal_quality(text: str) -> str:
+    for terms, normalized in (
+        (("刺痛",), "刺痛"),
+        (("抽着痛", "抽痛"), "抽着痛"),
+        (("僵硬", "僵"), "僵硬"),
+        (("酸",), "酸"),
+        (("胀",), "胀"),
+        (("痛", "疼"), "痛"),
+    ):
+        if any(term in text for term in terms):
+            return normalized
+    return "不舒服"
+
+
+def _musculoskeletal_time_reference(text: str) -> str | None:
+    if "今天早上" in text or "今早" in text:
+        return "今天早上"
+    if "早上" in text:
+        return "早上"
+    if "今天刚出现" in text or "今天开始" in text:
+        return "今天刚出现"
+    return None
 
 
 def _is_abdominal_report(text: str) -> bool:

@@ -70,7 +70,7 @@ def test_abdominal_flow_stops_after_required_fields_are_checked() -> None:
     assert output.needs_follow_up_question is False
     assert "已记录：上腹痛和胀" in output.user_message
     assert "胃部不适" in output.user_message
-    assert "会提醒护理员尽快确认" in output.user_message
+    assert "会把这条记录给护理员看" in output.user_message
     assert state.active_observation["associated_symptoms_checked"] is True
 
 

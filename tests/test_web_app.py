@@ -450,6 +450,26 @@ def test_staff_page_shows_optional_concrete_observation_fields(monkeypatch, tmp_
         assert expected in page
 
 
+def test_back_pain_staff_page_keeps_detailed_checks_out_of_elder_copy(monkeypatch, tmp_path) -> None:
+    monkeypatch.setattr(product_store, "PRODUCT_DATA_DIR", tmp_path / ".product_data")
+    app = create_app()
+    app.config["TESTING"] = True
+    client = app.test_client()
+    client.get("/elder")
+    _select_demo_resident(client)
+
+    elder_page = client.post(
+        "/elder/report",
+        data={"user_input": "我今天早上起来背很痛"},
+    ).get_data(as_text=True)
+    staff_page = client.get("/staff").get_data(as_text=True)
+
+    for expected in ("是否摔倒", "扭伤", "是否影响站立/走路/翻身/吃饭", "是否伴随胸闷/气短/出汗/发热/麻木/无力"):
+        assert expected in staff_page
+    for forbidden in ("需要排查", "红旗", "风险因素", "也要留意"):
+        assert forbidden not in elder_page
+
+
 def test_institution_page_lists_events_across_residents(monkeypatch, tmp_path) -> None:
     monkeypatch.setattr(product_store, "PRODUCT_DATA_DIR", tmp_path / ".product_data")
     wang = product_store.get_demo_resident()

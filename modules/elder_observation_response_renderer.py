@@ -2,12 +2,19 @@
 """Unified elder-facing rendering from accumulated observation state."""
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, TypedDict
 
 ESCALATION_ACTIONS = {"emergency_now", "same_day_review"}
 FORBIDDEN_DIAGNOSIS_WORDING = (
     "你可能是", "疑似", "确诊", "你这是", "胃炎", "心梗", "胆囊炎", "脑梗", "肿瘤", "癌症",
 )
+
+
+class ElderExplanationParts(TypedDict):
+    plain_possible_reasons: str
+    safe_mitigation: str
+    direct_red_flag_question: str
+    staff_only_checks: list[str]
 
 
 def render_elder_observation_response(
@@ -20,16 +27,19 @@ def render_elder_observation_response(
     """Render a concrete response without allowing wording to alter safety action."""
     observation = active_observation or {}
     acknowledgement = _acknowledgement(observation, latest_user_input, response_mode)
-    explanation = _validated_model_explanation(observation) or _domain_explanation(observation)
+    detail = _response_detail(observation)
+    explanation = _validated_model_explanation(observation) or detail["plain_possible_reasons"]
 
-    parts = [acknowledgement, explanation]
+    parts = [acknowledgement, explanation, detail["safe_mitigation"]]
     if next_question:
         parts.append(f"请您再告诉我：{_single_question(next_question)}")
+    elif detail["direct_red_flag_question"] and response_mode not in {"complete", "urgent"}:
+        parts.append(f"请您再告诉我：{_single_question(detail['direct_red_flag_question'])}")
     elif response_mode == "complete":
-        parts.append("我已经帮您把情况记录下来了，会提醒护理员尽快确认。")
+        parts.append("我已经帮您把情况记录下来了，会把这条记录给护理员看。")
 
     if response_mode == "urgent" or action_level in ESCALATION_ACTIONS:
-        parts.append("请马上叫护理员过来看一下。")
+        parts.append("这个情况需要护理员尽快过来看一下。请马上叫护理员过来看一下。")
 
     response = "".join(part for part in parts if part)
     return _fit_response(response, observation, next_question, action_level, response_mode)
@@ -51,11 +61,13 @@ def _known_issue(observation: dict[str, Any]) -> str:
     if domain == "abdominal_digestive":
         return f"{location or '腹部'}{quality or '不舒服'}"
     if location and quality:
-        return f"{location}{quality}"
+        location = location.replace("背部", "背").replace("腰部", "腰")
+        duration = observation.get("duration") or ""
+        return f"{location}{quality}{duration if _is_musculoskeletal(observation) else ''}"
     return _display_report(observation.get("raw_quote") or observation.get("specific_problem", "有些不舒服"))
 
 
-def _domain_explanation(observation: dict[str, Any]) -> str:
+def _response_detail(observation: dict[str, Any]) -> ElderExplanationParts:
     domain = observation.get("domain", "general")
     raw = observation.get("raw_quote", "")
     problem = observation.get("specific_problem", "")
@@ -64,31 +76,83 @@ def _domain_explanation(observation: dict[str, Any]) -> str:
 
     if domain == "abdominal_digestive":
         if "上腹" in location and "痛" in quality and "胀" in quality:
-            return (
-                "上腹又痛又胀可能和胃部不适、消化不良、胀气或饮食有关，但如果持续加重、伴随发热呕吐、"
-                "胸闷出汗或黑便血便，需要尽快让护理员查看。"
-            )
-        if "上腹" in location:
-            return "上腹痛有时可能和胃部不适、消化不良、胀气、受凉、饮食或药物有关，也要留意是否突然加重。"
-        if not location and ("突然" in raw or "非常痛" in raw or "剧烈" in raw):
-            return "肚子突然明显疼痛可能和胃肠不适、饮食、受凉、胀气或其他身体变化有关，但需要先确认位置和有没有加重。"
-        return (
-            "腹部不适可能和饮食、消化不良、胀气、受凉、便秘、腹泻、胃部不适或药物有关。"
-            "如果疼痛持续加重，或伴随发热、呕吐、腹泻、胸闷气短、出汗、晕倒、黑便或血便，需要尽快让护理员查看。"
-        )
+            reasons = "上腹又痛又胀可能和胃部不适、消化不良、胀气、饮食刺激、受凉或药物有关。"
+        elif "上腹" in location:
+            reasons = "上腹不舒服有时可能和胃部不适、消化不良、胀气、饮食刺激、受凉或药物有关。"
+        elif not location and ("突然" in raw or "非常痛" in raw or "剧烈" in raw):
+            reasons = "肚子突然明显疼痛可能和胃肠不适、饮食刺激、受凉、胀气、便秘或腹泻有关，但需要尽快确认具体位置。"
+        else:
+            reasons = "腹部不适可能和饮食刺激、消化不良、胀气、受凉、便秘、腹泻、胃部不适或药物有关。"
+        return {
+            "plain_possible_reasons": reasons,
+            "safe_mitigation": "您先不要硬撑着活动，也先别自行吃药，可以坐下或躺在舒服的位置等护理员确认。",
+            "direct_red_flag_question": "疼痛有没有越来越重，或者有没有发热、呕吐、胸闷气短、出汗、晕倒、黑便或血便？",
+            "staff_only_checks": ["腹部位置和硬度", "进食饮水情况", "发热、呕吐、腹泻、黑便或血便"],
+        }
     if domain == "sleep" or "睡" in problem:
-        return "睡不好可能和起夜、身体不舒服、心里惦记事、疼痛、白天活动少或环境有关，需要护理员结合实际情况再确认。"
+        return _parts(
+            "睡不好可能和起夜、身体不舒服、心里惦记事有关；具体可能是夜里起夜或疼痛、白天活动少，或者房间太亮、太吵、太冷太热。",
+            "您先把昨晚醒来的次数和哪里不舒服告诉护理员，白天尽量按平时作息休息。",
+        )
     if _is_musculoskeletal(observation):
-        return "酸痛可能和睡姿、久坐、活动后肌肉酸痛或受凉、关节不适有关，也要留意有没有摔倒或突然加重。"
+        if "肩" in location and "背" in location and "酸" in quality:
+            reasons = "肩背酸痛有时和昨晚睡姿不舒服、低头久坐、肩背受凉，或者前一天活动后肌肉酸痛有关。"
+            mitigation = "您先放松肩背，避免继续弯腰或提重物，可以坐下休息，保持舒服姿势。"
+        elif "背" in location or "腰" in location:
+            reasons = (
+                "早上起床后背痛，有时和昨晚睡姿不舒服、床垫或枕头支撑不好、翻身少、久坐后腰背僵硬，"
+                "或者前一天弯腰、提东西、走路多造成肌肉酸痛有关。"
+            )
+            mitigation = "您先别硬撑着活动或弯腰提重物，可以先坐下休息，保持舒服姿势。"
+        else:
+            reasons = "这处酸痛有时和睡姿不舒服、同一姿势保持太久、受凉，或者前一天活动后肌肉和关节疲劳有关。"
+            mitigation = "您先别硬撑着活动，避免弯腰或提重物，可以坐下休息，保持舒服姿势。"
+        return {
+            "plain_possible_reasons": reasons,
+            "safe_mitigation": mitigation,
+            "direct_red_flag_question": "今天有没有摔倒、扭到，或者疼痛是突然一下子很重、越来越重？",
+            "staff_only_checks": [
+                "是否摔倒、扭伤、搬重物或活动后加重",
+                "疼痛部位和性质",
+                "是否影响站立、走路、翻身或吃饭",
+                "是否伴随胸闷、气短、出汗、发热、麻木或无力",
+            ],
+        }
     if _is_headache(observation):
-        return "头痛可能和休息不好、紧张、受凉、血压波动或身体其他不适有关，但不能据此判断具体原因。"
+        return _parts(
+            "头痛有时和昨晚休息不好、心里紧张、头颈受凉、血压波动或身体其他不舒服有关，但不能据此判断具体原因。",
+            "您先坐下休息，别突然起身或独自走远。",
+            "头痛是不是突然一下子很重，有没有呕吐、看不清、说话不清或手脚没力？",
+        )
     if domain == "sensory" or "麻木" in problem or "发麻" in problem:
-        return "手麻有时和姿势压迫、局部受凉或手脚劳累有关，也需要确认是不是突然出现或伴随没力。"
+        return _parts(
+            "手脚发麻有时和睡觉或坐着时压住手脚、局部受凉，或者手脚活动太久有关。",
+            "您先坐稳，不要勉强用发麻的手脚拿重物或独自走动。",
+            "这种麻木是不是突然出现，有没有同时没力、脸歪或说话不清？",
+        )
     if domain == "mood" or "不想麻烦" in raw:
-        return "很多老人身体不舒服或心里有事时会先忍着，但护理员知道后才能更好照顾您。"
+        return _parts(
+            "很多老人身体不舒服或心里有事时会先忍着，但护理员知道后才能更好照顾您。",
+            "您不用一个人扛着，可以先告诉护理员是身体哪里不舒服，还是心里难受。",
+        )
     if domain in {"appetite", "digestion", "appetite_digestion"}:
-        return "胃口和消化变化可能和饮食、药物、睡眠、情绪或身体不舒服有关，需要护理员结合实际情况再确认。"
-    return "我先帮您把这个具体情况记下来，需要再了解一点，护理员才能更好判断。"
+        return _parts(
+            "胃口和消化变化有时和最近吃的东西、药物、睡眠、心情或身体不舒服有关。",
+            "您先不要勉强吃太多，把能不能喝水、有没有恶心或腹泻告诉护理员。",
+        )
+    return _parts(
+        "我先帮您把这个具体情况记下来，还需要知道什么时候开始、有没有加重，护理员才能更清楚地了解。",
+        "您先坐下休息，不要硬撑；如果现在明显更不舒服，请直接叫护理员。",
+    )
+
+
+def _parts(reasons: str, mitigation: str, direct_question: str = "") -> ElderExplanationParts:
+    return {
+        "plain_possible_reasons": reasons,
+        "safe_mitigation": mitigation,
+        "direct_red_flag_question": direct_question,
+        "staff_only_checks": [],
+    }
 
 
 def _validated_model_explanation(observation: dict[str, Any]) -> str | None:
@@ -142,15 +206,16 @@ def _fit_response(
     action_level: str | None,
     mode: str,
 ) -> str:
-    if len(response) <= 320 or mode == "urgent" or action_level in ESCALATION_ACTIONS:
+    if len(response) <= 420 or mode == "urgent" or action_level in ESCALATION_ACTIONS:
         return response
     acknowledgement = _acknowledgement(observation, "", mode)
-    explanation = _domain_explanation(observation)
+    detail = _response_detail(observation)
+    explanation = f"{detail['plain_possible_reasons']}{detail['safe_mitigation']}"
     suffix = f"请您再告诉我：{_single_question(question)}" if question else "我已经记录下来，会提醒护理员确认。"
-    available = 320 - len(acknowledgement) - len(suffix)
+    available = 420 - len(acknowledgement) - len(suffix)
     if available <= 0:
-        return f"{acknowledgement}{suffix}"[:320]
-    return f"{acknowledgement}{_truncate(explanation, available)}{suffix}"[:320]
+        return f"{acknowledgement}{suffix}"[:420]
+    return f"{acknowledgement}{_truncate(explanation, available)}{suffix}"[:420]
 
 
 def _truncate(text: str, length: int) -> str:

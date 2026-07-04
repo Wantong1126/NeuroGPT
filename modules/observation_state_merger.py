@@ -56,9 +56,13 @@ def merge_observation_turn(
     if value is None:
         return merged
 
-    if previous_pending_field == "associated_symptoms":
+    if previous_pending_field in {"associated_symptoms", "musculoskeletal_red_flags"}:
         merged.update(value)
-        stored_value: Any = value.get("associated_symptoms_reported") or value.get("associated_symptoms_denied")
+        stored_value: Any = (
+            value.get("associated_symptoms_reported")
+            or value.get("associated_symptoms_denied")
+            or answer
+        )
     elif previous_pending_field == "severity_progression":
         merged.update(value)
         stored_value = answer
@@ -75,7 +79,35 @@ def merge_observation_turn(
 
 
 def plan_next_observation_question(observation: dict) -> tuple[str | None, str | None, list[str]]:
-    """Return the next missing abdominal field, never re-asking a known field."""
+    """Return the next missing structured field, never re-asking a known field."""
+    if is_musculoskeletal_observation(observation):
+        if not observation.get("body_location"):
+            return (
+                "是上背、下背、腰部，还是靠近肩膀的位置最痛？",
+                "body_location",
+                ["上背", "下背", "腰部", "靠近肩膀"],
+            )
+        if not observation.get("sensation_quality"):
+            return (
+                "更像是酸、胀、刺痛、抽着痛，还是僵硬？",
+                "sensation_quality",
+                ["酸", "胀", "刺痛", "抽着痛", "僵硬"],
+            )
+        if not observation.get("duration") and not observation.get("time_reference") and not observation.get("onset"):
+            feeling = "这种酸痛" if "酸" in str(observation.get("sensation_quality") or "") else "这种不舒服"
+            return (
+                f"{feeling}是今天刚出现，还是已经有几天了？",
+                "duration",
+                ["今天刚出现", "几天了", "一周了"],
+            )
+        if not observation.get("musculoskeletal_red_flags_checked"):
+            return (
+                "今天有没有摔倒、扭到，或者疼痛是突然一下子很重、越来越重？",
+                "musculoskeletal_red_flags",
+                ["没有", "摔倒", "扭到", "突然很重", "越来越重"],
+            )
+        return None, None, []
+
     if observation.get("domain") != "abdominal_digestive":
         return None, None, []
     if not observation.get("body_location"):
@@ -127,8 +159,17 @@ def is_abdominal_report(text: str) -> bool:
     )
 
 
+def is_musculoskeletal_observation(observation: dict) -> bool:
+    location = str(observation.get("body_location") or "")
+    problem = str(observation.get("specific_problem") or "")
+    return observation.get("domain") == "musculoskeletal_pain" or (
+        observation.get("domain") == "pain"
+        and any(term in f"{location}{problem}" for term in ("肩", "背", "腰", "颈", "脖子", "腿", "关节", "肌肉"))
+    )
+
+
 def _changes_topic(answer: str, observation: dict, pending_field: str) -> bool:
-    if pending_field == "associated_symptoms":
+    if pending_field in {"associated_symptoms", "musculoskeletal_red_flags"}:
         return False
     if observation.get("domain") == "abdominal_digestive":
         return any(term in answer for term in NEW_TOPIC_TERMS) or ("头" in answer and "晕" in answer)
@@ -139,17 +180,24 @@ def _looks_like_answer(answer: str, pending_field: str) -> bool:
     if len(answer) > 40 and pending_field != "associated_symptoms":
         return False
     patterns = {
-        "body_location": ("上腹", "肚脐", "下腹", "左边", "右边", "左侧", "右侧", "胃", "肚子"),
-        "sensation_quality": ("痛", "疼", "胀", "绞", "烧心", "恶心", "想吐"),
-        "duration": ("刚刚", "刚才", "小时", "分钟", "天", "早上", "一阵", "一直"),
+        "body_location": ("上腹", "肚脐", "下腹", "左边", "右边", "左侧", "右侧", "胃", "肚子", "上背", "下背", "腰", "肩", "脖子", "颈"),
+        "sensation_quality": ("痛", "疼", "胀", "酸", "刺", "抽", "僵", "烧心", "恶心", "想吐"),
+        "duration": ("刚刚", "刚才", "刚出现", "今天", "小时", "分钟", "天", "早上", "一阵", "一直", "周"),
         "severity_progression": ("痛", "严重", "还好", "能忍", "加重", "更", "差不多", "减轻", "影响"),
         "associated_symptoms": tuple(term for terms in ASSOCIATED_SYMPTOMS.values() for term in terms) + ("没有", "都没有", "没什么"),
+        "musculoskeletal_red_flags": ("没有", "没", "摔", "跌", "扭", "突然", "很重", "加重", "越来越"),
     }
     return any(term in answer for term in patterns.get(pending_field, ()))
 
 
 def _field_value(field: str, answer: str, observation: dict) -> Any:
     if field == "body_location":
+        for terms, normalized in (
+            (("上背",), "上背"), (("下背",), "下背"), (("腰",), "腰部"),
+            (("肩膀", "肩"), "肩膀"), (("脖子", "颈"), "肩颈"),
+        ):
+            if any(term in answer for term in terms):
+                return normalized
         for term in ("上腹", "肚脐周围", "肚脐", "下腹"):
             if term in answer:
                 return "肚脐周围" if term == "肚脐" else term
@@ -205,4 +253,21 @@ def _field_value(field: str, answer: str, observation: dict) -> Any:
             "associated_symptoms_denied": denied,
             "associated_symptoms_checked": True,
         }
+    if field == "musculoskeletal_red_flags":
+        reported = []
+        for normalized, terms in (
+            ("摔倒", ("摔", "跌倒")),
+            ("扭伤", ("扭",)),
+            ("突然剧烈疼痛", ("突然很重", "突然一下子很重")),
+            ("疼痛持续加重", ("加重", "越来越重")),
+        ):
+            if any(term in answer for term in terms):
+                reported.append(normalized)
+        result = {
+            "musculoskeletal_red_flags_checked": True,
+            "musculoskeletal_red_flags_reported": reported,
+        }
+        if "疼痛持续加重" in reported:
+            result["progression"] = "加重"
+        return result
     return None

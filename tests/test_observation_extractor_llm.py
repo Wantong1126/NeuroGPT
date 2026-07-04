@@ -82,7 +82,8 @@ def test_ds_extraction_uses_openai_compatible_config_and_schema(monkeypatch) -> 
     assert "Do not collapse" in calls[0][1]
     assert "next_best_question" in calls[0][2]
     assert "昨晚没睡好" in result.recommended_elder_response
-    assert "起夜、身体不舒服、心里惦记事" in result.recommended_elder_response
+    assert "夜里起夜" in result.recommended_elder_response
+    assert "房间太亮、太吵" in result.recommended_elder_response
     assert "多种常见原因" not in result.recommended_elder_response
 
 
@@ -100,7 +101,8 @@ def test_sleep_pipeline_uses_specific_observation_question() -> None:
 
     assert state.observation_extraction["observations"][0]["domain"] == "sleep"
     assert "半夜醒了很多次" in (output.follow_up_question or "")
-    assert "起夜、身体不舒服、心里惦记事" in output.user_message
+    assert "夜里起夜" in output.user_message
+    assert "心里惦记事" in output.user_message
     assert "今天刚出现" not in output.user_message
 
 
@@ -108,7 +110,8 @@ def test_pain_pipeline_does_not_use_generic_neuro_question() -> None:
     _state, output = run_pipeline("detail-pain", "我肩膀和背很酸")
 
     assert "已经有几天了" in (output.follow_up_question or "")
-    assert "睡姿、久坐、活动后肌肉酸痛或受凉" in output.user_message
+    assert "低头久坐" in output.user_message
+    assert "活动后肌肉酸痛" in output.user_message
     for phrase in ("麻木", "动作不灵活", "感觉变迟钝"):
         assert phrase not in output.user_message
 
@@ -134,10 +137,10 @@ def test_mood_report_preserves_intent_and_emotional_context() -> None:
 @pytest.mark.parametrize(
     ("report", "expected"),
     [
-        ("昨晚没睡好", "睡不好可能和起夜、身体不舒服"),
-        ("我肩膀和背很酸", "睡姿、久坐、活动后肌肉酸痛"),
+        ("昨晚没睡好", "房间太亮、太吵"),
+        ("我肩膀和背很酸", "低头久坐"),
         ("我不想麻烦孩子", "护理员知道后才能更好照顾您"),
-        ("我手麻", "手麻有时和姿势压迫"),
+        ("我手麻", "睡觉或坐着时压住手脚"),
     ],
 )
 def test_elder_response_mentions_issue_and_specific_explanation(report: str, expected: str) -> None:
@@ -154,11 +157,11 @@ def test_deterministic_emergency_action_overrides_observation_question() -> None
 
     assert output.action_level == "emergency_now"
     assert output.needs_follow_up_question is False
-    assert "请马上叫护理员过来看一下。" in output.user_message
+    assert "这个情况需要护理员尽快过来看一下。请马上叫护理员" in output.user_message
 
 
 def test_same_day_action_also_tells_elder_to_call_staff() -> None:
     _state, output = run_pipeline("detail-same-day", "老人这几年说话越来越慢")
 
     assert output.action_level == "same_day_review"
-    assert "请马上叫护理员过来看一下。" in output.user_message
+    assert "这个情况需要护理员尽快过来看一下。请马上叫护理员" in output.user_message
