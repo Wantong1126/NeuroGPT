@@ -230,6 +230,30 @@ def test_new_or_exact_match_resident_receives_report(monkeypatch, tmp_path) -> N
     assert "我昨晚没有睡好。" in admin_page
 
 
+def test_detailed_observation_flows_to_staff_and_confirmed_family(monkeypatch, tmp_path) -> None:
+    monkeypatch.setattr(product_store, "PRODUCT_DATA_DIR", tmp_path / ".product_data")
+    app = create_app()
+    app.config["TESTING"] = True
+    client = app.test_client()
+    client.get("/elder")
+    _select_demo_resident(client)
+    client.post("/elder/report", data={"user_input": "昨晚没睡好"})
+
+    resident = product_store.get_demo_resident()
+    event = product_store.get_latest_event_for_resident(resident.resident_id)
+    assert event is not None
+    assert event.observation_extraction["observations"][0]["specific_problem"] == "昨晚睡眠质量不好"
+
+    staff_page = client.get("/staff").get_data(as_text=True)
+    for expected in ("老人原话", "昨晚没睡好", "具体情况", "昨晚睡眠质量不好", "还需了解", "护理检查", "需要排查", "交接建议"):
+        assert expected in staff_page
+
+    product_store.update_event_staff_status(event.event_id, "confirmed")
+    family_page = client.get("/family").get_data(as_text=True)
+    assert "老人反映昨晚睡眠不好，护理员将进一步了解原因和白天精神状态。" in family_page
+    assert "staff_checklist" not in family_page
+
+
 def test_switching_resident_starts_a_separate_case_session(monkeypatch, tmp_path) -> None:
     monkeypatch.setattr(product_store, "PRODUCT_DATA_DIR", tmp_path / ".product_data")
     app = create_app()

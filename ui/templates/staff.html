@@ -11,7 +11,21 @@
     <a class="back-link" href="{{ url_for('home') }}">← 首页</a>
     <header class="page-header"><div><p class="eyebrow">护理员端</p><h1>待确认状态记录</h1></div><nav class="language-toggle" aria-label="语言切换"><a href="{{ url_for('staff', lang='zh') }}" aria-current="page">中文</a><span>|</span><a href="{{ url_for('staff', lang='en') }}">EN</a></nav></header>
     {% if latest_event %}
-      <section class="empty-state"><h2>{{ resident.name }}{% if resident.room %} · {{ resident.room }}{% endif %}</h2><p>最新记录：{{ latest_event.raw_report }}</p></section>
+      <section class="admin-card">
+        <h2>{{ resident.name }}{% if resident.room %} · {{ resident.room }}{% endif %}</h2>
+        {% if observation %}
+          <dl class="event-details">
+            <div><dt>老人原话</dt><dd>“{{ observation.raw_quote }}”</dd></div>
+            <div><dt>具体情况</dt><dd>{{ observation.specific_problem }}</dd></div>
+            <div><dt>还需了解</dt><dd><ul>{% for item in observation.missing_information %}<li>{{ item }}</li>{% endfor %}</ul></dd></div>
+            <div><dt>护理检查</dt><dd><ul>{% for item in observation.staff_checklist %}<li>{{ item }}</li>{% endfor %}</ul></dd></div>
+            <div><dt>需要排查</dt><dd><ul>{% for item in observation.red_flag_checks_needed %}<li>{{ item }}</li>{% endfor %}</ul></dd></div>
+          </dl>
+          {% if recommended_staff_handoff %}<div class="notice"><strong>交接建议：</strong>{{ recommended_staff_handoff }}</div>{% endif %}
+        {% else %}
+          <p>最新记录：{{ latest_event.raw_report }}</p>
+        {% endif %}
+      </section>
     {% else %}
       <section class="empty-state"><h2>暂无待确认记录</h2><p>老人提交状态后，会显示在这里。</p></section>
     {% endif %}

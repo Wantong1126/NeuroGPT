@@ -7,6 +7,7 @@ import re
 from datetime import datetime, timezone
 from enum import Enum
 from pathlib import Path
+from typing import Any
 from uuid import uuid4
 
 from pydantic import BaseModel, Field
@@ -63,6 +64,7 @@ class CareEvent(BaseModel):
     staff_note: str = ""
     caregiver_summary: str = ""
     family_report_ready: bool = False
+    observation_extraction: dict[str, Any] = Field(default_factory=dict)
 
 
 def get_demo_resident() -> Resident:
@@ -178,6 +180,7 @@ def create_care_event_from_state(
         needs_follow_up=state.needs_follow_up_question,
         follow_up_question=state.follow_up_question,
         caregiver_summary=state.caregiver_summary or "",
+        observation_extraction=state.observation_extraction,
     )
     _write_record(_record_path(_events_dir(), event.event_id), event)
     return event

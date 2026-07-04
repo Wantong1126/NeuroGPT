@@ -18,6 +18,11 @@ DEFAULT_PROVIDER_CONFIG = {
         "base_url": "",
         "model": "",
     },
+    "observation_extractor_llm": {
+        "provider": "heuristic",
+        "base_url": "",
+        "model": "",
+    },
 }
 
 

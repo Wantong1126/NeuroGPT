@@ -52,6 +52,7 @@ def test_care_event_round_trip_and_latest_order(monkeypatch, tmp_path) -> None:
     assert second.case_session_id == "case_123"
     assert second.staff_status == product_store.StaffStatus.PENDING_CONFIRMATION
     assert second.family_report_ready is False
+    assert second.observation_extraction == state.observation_extraction
 
 
 def test_staff_confirmation_makes_family_report_ready(monkeypatch, tmp_path) -> None:

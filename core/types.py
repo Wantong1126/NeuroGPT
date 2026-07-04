@@ -8,7 +8,7 @@ Single source of truth — no duplicates across modules.
 from __future__ import annotations
 
 from enum import Enum
-from typing import Optional
+from typing import Any, Optional
 from pydantic import BaseModel, Field
 from datetime import datetime
 
@@ -214,6 +214,7 @@ class CaseState(BaseModel):
 
     # Extracted symptom fields
     symptoms_detected: ExtractedSymptoms = Field(default_factory=ExtractedSymptoms)
+    observation_extraction: dict[str, Any] = Field(default_factory=dict)
 
     # Core clinical dimensions (mirrors ExtractedSymptoms for fast access)
     onset: Onset = Onset.UNKNOWN

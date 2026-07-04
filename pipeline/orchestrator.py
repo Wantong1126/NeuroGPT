@@ -13,11 +13,11 @@ from core.types import (
 )
 from modules.action_mapper import map_to_action
 from modules.concern_estimator import estimate_concern
-from modules.elder_explanation_generator import (
-    format_elder_explanation,
-    generate_elder_explanation,
-)
 from modules.hesitation_detector import detect_hesitation
+from modules.observation_extractor_llm import (
+    ObservationExtractionResult,
+    extract_observation_details,
+)
 from modules.question_manager import decide_question
 from modules.response_builder import (
     ACTION_LABELS,
@@ -28,7 +28,6 @@ from modules.response_builder import (
     build_response,
 )
 from modules.summary_generator import generate_summary
-from modules.symptom_family_router import route_symptom_family
 from pipeline.multi_turn import merge_turn
 from pipeline.state import new_case
 
@@ -131,20 +130,23 @@ def run_pipeline(session_id: str, user_input: str, state: CaseState | None = Non
 
     state = merge_turn(state, user_input)
     state.hesitation_flags = detect_hesitation(state)
-    symptom_family = route_symptom_family(state.raw_user_input)
+    observation_extraction = extract_observation_details(state.raw_user_input)
+    state.observation_extraction = observation_extraction.model_dump(mode="json")
 
-    question = decide_question(state)
+    _apply_deterministic_assessment(state)
+
+    deterministic_question = decide_question(state)
+    extracted_question = _extracted_next_question(observation_extraction)
+    question = None if state.action_level.value == "emergency_now" else (extracted_question or deterministic_question)
     if question:
         state.needs_follow_up_question = True
         state.follow_up_question = question
         elder_response = build_clarification_response(state, question)
-        explanation = generate_elder_explanation(
-            state,
-            symptom_family,
-            state.action_level.value,
+        assistant_text = _build_observation_elder_text(
+            observation_extraction,
             question,
+            state.action_level.value,
         )
-        assistant_text = format_elder_explanation(explanation)
         state.user_message = assistant_text
         state.caregiver_summary = elder_response.caregiver_summary
         state.add_assistant_message(assistant_text)
@@ -163,24 +165,13 @@ def run_pipeline(session_id: str, user_input: str, state: CaseState | None = Non
     state.needs_follow_up_question = False
     state.follow_up_question = None
 
-    concern = estimate_concern(state)
-    state.concern_level = concern.concern_level
-    state.plain_language_rationale = concern.explanation
-    state.why_not_normal_ageing = concern.why_not_normal_ageing
-    if concern.concern_level.value == "unclear":
-        state.action_level = map_to_action(concern.concern_level)
-    else:
-        state.action_level = concern.risk_assessment.action
-
     elder_response = build_response(state)
-    explanation = generate_elder_explanation(
-        state,
-        symptom_family,
-        state.action_level.value,
-        None,
-    )
     assistant_text = _build_explained_action_text(
-        format_elder_explanation(explanation),
+        _build_observation_elder_text(
+            observation_extraction,
+            None,
+            state.action_level.value,
+        ),
         elder_response.key_signs_summary,
         elder_response.guidance_snippets,
         elder_response.urgency_statement,
@@ -203,6 +194,48 @@ def run_pipeline(session_id: str, user_input: str, state: CaseState | None = Non
         disclaimer=elder_response.disclaimer,
     )
     return state, output
+
+
+def _apply_deterministic_assessment(state: CaseState) -> None:
+    concern = estimate_concern(state)
+    state.concern_level = concern.concern_level
+    state.plain_language_rationale = concern.explanation
+    state.why_not_normal_ageing = concern.why_not_normal_ageing
+    if concern.concern_level.value == "unclear":
+        state.action_level = map_to_action(concern.concern_level)
+    else:
+        state.action_level = concern.risk_assessment.action
+
+
+def _extracted_next_question(extraction: ObservationExtractionResult) -> str | None:
+    for observation in extraction.observations:
+        if observation.domain == "general" and observation.confidence == "fallback":
+            continue
+        if observation.next_best_question.strip():
+            return observation.next_best_question.strip()
+    return None
+
+
+def _build_observation_elder_text(
+    extraction: ObservationExtractionResult,
+    question: str | None,
+    action_level: str,
+) -> str:
+    observation = extraction.observations[0] if extraction.observations else None
+    if question:
+        response = extraction.recommended_elder_response.strip()
+        if not response or question not in response:
+            quote = observation.raw_quote if observation else extraction.overall_plain_summary
+            response = f"我听到您说：{quote.rstrip('。.!！')}。请您再告诉我：{question}"
+    else:
+        quote = observation.raw_quote if observation else extraction.overall_plain_summary
+        response = f"我听到您说：{quote.rstrip('。.!！')}。我已经记录下来了。"
+
+    if action_level in {"emergency_now", "same_day_review"}:
+        urgent_text = "请马上叫护理员过来看一下。"
+        if urgent_text not in response:
+            response = f"{response}{urgent_text}"
+    return response
 
 
 def _build_explained_action_text(

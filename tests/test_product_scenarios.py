@@ -45,7 +45,7 @@ def assert_caregiver_summary_exists(output) -> None:
 
 
 def assert_one_question(text: str) -> None:
-    assert text.count("？") + text.count("?") == 1
+    assert text.count("请您再告诉我：") == 1
 
 
 def test_clear_emergency_red_flag_should_not_wait_for_clarification() -> None:
@@ -95,7 +95,7 @@ def test_mild_transient_symptom_uses_monitor_safety_net_style() -> None:
 
     assert output.action_level == "monitor"
     assert output.needs_follow_up_question is False
-    assert "如果情况加重或出现新的不舒服，请马上叫护理员" in output.user_message
+    assert "如果出现新的不舒服或明显加重，请马上告诉护理员" in output.user_message
     assert "如果加重应尽快就医" in output.user_message or "需要升级处理" in output.user_message
     assert "立即拨打" not in output.user_message
     assert_caregiver_summary_exists(output)

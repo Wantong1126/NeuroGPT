@@ -125,22 +125,12 @@ def test_diagnostic_ds_reason_is_rejected(monkeypatch) -> None:
     assert "姿势压迫" in explanation.possible_reasons_plain
 
 
-def test_pipeline_uses_ds_wording_without_changing_action(monkeypatch) -> None:
-    _enable_fake_ds(
-        monkeypatch,
-        {
-            "acknowledgement": "我听到您说最近睡不好。",
-            "possible_reasons_plain": "可能和作息、环境或心里有事有关。",
-            "next_question": "",
-            "when_to_call_staff": "如果连续多天睡不好，请告诉护理员。",
-        },
-    )
-
+def test_pipeline_uses_detailed_observation_without_changing_action() -> None:
     _state, output = run_pipeline("elder-explanation-integration", "我睡不好")
 
     assert output.action_level == "monitor"
-    assert "可能和作息、环境或心里有事有关" in output.user_message
-    assert output.follow_up_question == plan_follow_up_question("sleep")
+    assert "睡不着，还是半夜醒了很多次" in output.user_message
+    assert "疼、心慌、起夜" in (output.follow_up_question or "")
     assert "给家属/医生" not in output.user_message
 
 

@@ -11,7 +11,7 @@
     <a class="back-link" href="{{ url_for('home') }}">← 首页</a>
     <header class="page-header"><div><p class="eyebrow">家属端</p><h1>老人近况</h1></div><nav class="language-toggle" aria-label="语言切换"><a href="{{ url_for('family', lang='zh') }}" aria-current="page">中文</a><span>|</span><a href="{{ url_for('family', lang='en') }}">EN</a></nav></header>
     {% if latest_event and latest_event.family_report_ready %}
-      <section class="empty-state"><h2>{{ resident.name }} · 最新近况</h2><p>{{ latest_event.caregiver_summary }}</p></section>
+      <section class="empty-state"><h2>{{ resident.name }} · 最新近况</h2><p>{{ confirmed_family_summary or latest_event.caregiver_summary }}</p></section>
     {% else %}
       <section class="empty-state"><h2>{{ resident.name }}暂无已确认记录</h2><p>护理员确认后，老人的近况会显示在这里。</p></section>
     {% endif %}

@@ -163,9 +163,18 @@ def _build_elder_view_model(
 
 def _build_product_view_model() -> dict[str, Any]:
     resident = _product_resident()
+    latest_event = get_latest_event_for_resident(resident.resident_id)
+    extraction = latest_event.observation_extraction if latest_event else {}
+    observations = extraction.get("observations") or []
     return {
         "resident": resident,
-        "latest_event": get_latest_event_for_resident(resident.resident_id),
+        "latest_event": latest_event,
+        "observation": observations[0] if observations else None,
+        "recommended_staff_handoff": extraction.get("recommended_staff_handoff", ""),
+        "confirmed_family_summary": extraction.get(
+            "recommended_family_summary_after_confirmation",
+            "",
+        ),
     }
 
 

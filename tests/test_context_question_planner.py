@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import pytest
 
-from modules.question_planner import plan_follow_up_question
 from modules.symptom_family_router import route_symptom_family
 from pipeline.orchestrator import run_pipeline
 
@@ -32,7 +31,8 @@ def test_musculoskeletal_soreness_gets_relevant_follow_up() -> None:
     _state, output = run_pipeline("context-musculoskeletal", "我肩膀和背很酸")
 
     assert output.needs_follow_up_question is True
-    assert output.follow_up_question == plan_follow_up_question("musculoskeletal_pain")
+    assert "今天刚出现" in (output.follow_up_question or "")
+    assert "摔倒、胸闷、气短、出汗" in (output.follow_up_question or "")
     assert "酸痛" in output.user_message
     for irrelevant in ("麻木", "没力、动作不灵活", "感觉变迟钝"):
         assert irrelevant not in output.user_message
@@ -43,25 +43,26 @@ def test_hand_numbness_gets_focal_safety_follow_up() -> None:
 
     assert output.needs_follow_up_question is True
     question = output.follow_up_question or ""
-    assert "一边还是两边" in question
+    assert "哪只手" in question
     assert "突然出现" in question
     assert "说话不清" in question
     assert "脸歪" in question
-    assert "明显没力" in question
+    assert "同时没力" in question
 
 
 def test_sleep_complaint_gets_sleep_follow_up() -> None:
     _state, output = run_pipeline("context-sleep", "我睡不好")
 
-    assert output.follow_up_question == plan_follow_up_question("sleep")
-    assert "入睡困难" in output.user_message
-    assert "半夜醒很多次" in output.user_message
+    assert "昨晚是睡不着" in (output.follow_up_question or "")
+    assert "心慌、起夜" in (output.follow_up_question or "")
+    assert "睡不着" in output.user_message
+    assert "半夜醒了很多次" in output.user_message
 
 
 def test_sudden_head_pain_gets_headache_red_flag_follow_up() -> None:
     _state, output = run_pipeline("context-headache", "我头突然很痛")
 
-    assert output.follow_up_question == plan_follow_up_question("headache")
+    assert "突然一下子很严重" in (output.follow_up_question or "")
     assert "呕吐" in output.user_message
     assert "看不清" in output.user_message
     assert "说话不清" in output.user_message

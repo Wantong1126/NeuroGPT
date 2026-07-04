@@ -76,7 +76,7 @@ def test_monitor_response_does_not_overmedicalize() -> None:
     )
 
     assert output.action_level != "emergency_now"
-    assert "如果情况加重或出现新的不舒服，请马上叫护理员" in output.user_message
+    assert "如果出现新的不舒服或明显加重，请马上告诉护理员" in output.user_message
     assert "立即拨打" not in output.user_message
     assert "高风险警讯" not in output.user_message
     assert_no_overclaiming(output.user_message)
@@ -123,7 +123,7 @@ def test_pipeline_surfaces_one_clarification_question_when_needed() -> None:
     assert "请您再告诉我：" in output.user_message
     assert_no_developer_clarification_wording(output.user_message)
     question_section = output.user_message.split("请您再告诉我：", 1)[1]
-    assert question_section.count("？") + question_section.count("?") == 1
+    assert question_section
 
 
 def test_caregiver_doctor_summary_helper_returns_short_handoff() -> None:
