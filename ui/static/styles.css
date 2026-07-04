@@ -204,6 +204,54 @@ dd {
   margin: 0;
 }
 
+.fact-list {
+  margin-top: 8px;
+}
+
+.staff-action-form {
+  display: grid;
+  gap: 10px;
+  margin-top: 20px;
+  padding-top: 18px;
+  border-top: 1px solid #d8dee5;
+}
+
+.staff-action-form label {
+  font-weight: 700;
+}
+
+.staff-action-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.event-table-wrap {
+  overflow-x: auto;
+}
+
+.event-table {
+  width: 100%;
+  min-width: 980px;
+  border-collapse: collapse;
+  font-size: 0.95rem;
+}
+
+.event-table th,
+.event-table td {
+  padding: 12px;
+  border-bottom: 1px solid #e4e8eb;
+  text-align: left;
+  vertical-align: top;
+  line-height: 1.5;
+}
+
+.event-table th {
+  background: #f5f7f9;
+  color: #44505c;
+  white-space: nowrap;
+}
+
 .resident-quote {
   font-size: 1.08rem;
 }

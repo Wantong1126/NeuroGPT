@@ -18,7 +18,9 @@ from core.product_store import (
     get_identity_residents,
     get_latest_event_for_resident,
     get_resident,
+    list_all_events,
     list_events_for_resident,
+    update_event_staff_status,
 )
 from core.session import create_session, delete_session, load_session, save_session
 from core.types import CaseState
@@ -104,6 +106,18 @@ def create_app() -> Flask:
     def staff() -> str:
         return render_template("staff.html", **_build_product_view_model())
 
+    @app.post("/staff/events/<event_id>/update")
+    def staff_update_event(event_id: str) -> Any:
+        status = request.form.get("staff_status", "").strip()
+        note = request.form.get("staff_note", "").strip()
+        if status in STAFF_STATUS_LABELS:
+            updated = update_event_staff_status(event_id, status, staff_note=note)
+            if updated is not None:
+                resident = get_resident(updated.resident_id)
+                if resident is not None:
+                    session[RESIDENT_KEY] = resident.resident_id
+        return redirect(url_for("staff"))
+
     @app.get("/family")
     def family() -> str:
         return render_template("family.html", **_build_product_view_model())
@@ -175,13 +189,17 @@ def _build_product_view_model() -> dict[str, Any]:
             "recommended_family_summary_after_confirmation",
             "",
         ),
+        "staff_status_label": STAFF_STATUS_LABELS.get(
+            latest_event.staff_status.value,
+            "待护理员确认",
+        ) if latest_event else "",
+        "family_follow_up_label": _family_follow_up_label(latest_event) if latest_event else "",
     }
 
 
 def _build_admin_view_model() -> dict[str, Any]:
     resident = _product_resident()
-    events = list_events_for_resident(resident.resident_id)
-    latest_event = events[0] if events else None
+    events = list_all_events()
     today = datetime.now(CHINA_TIMEZONE).date()
     pending_count = sum(event.staff_status.value == "pending_confirmation" for event in events)
     handled_count = len(events) - pending_count
@@ -192,7 +210,7 @@ def _build_admin_view_model() -> dict[str, Any]:
 
     return {
         "resident": resident,
-        "latest_event": _event_view_model(latest_event) if latest_event else None,
+        "event_rows": [_institution_event_view_model(event) for event in events],
         "summary": {
             "today": sum(_event_local_date(event.created_at) == today for event in events),
             "pending": pending_count,
@@ -214,6 +232,21 @@ def _event_view_model(event: CareEvent) -> dict[str, Any]:
     }
 
 
+def _institution_event_view_model(event: CareEvent) -> dict[str, Any]:
+    resident = get_resident(event.resident_id)
+    observations = event.observation_extraction.get("observations") or []
+    observation = observations[0] if observations else {}
+    return {
+        "resident_name": resident.name if resident else "未知老人",
+        "room": resident.room if resident and resident.room else "未填写",
+        "raw_quote": observation.get("raw_quote") or event.raw_report,
+        "specific_problem": observation.get("specific_problem") or event.raw_report,
+        "staff_status": STAFF_STATUS_LABELS.get(event.staff_status.value, "待护理员确认"),
+        "staff_note": event.staff_note or "暂无",
+        "family_report_status": _family_report_status(event),
+    }
+
+
 def _event_local_date(created_at: datetime):
     return _as_china_datetime(created_at).date()
 
@@ -230,6 +263,18 @@ def _family_report_status(event: CareEvent) -> str:
     if event.family_report_ready:
         return "可生成"
     return "待护理确认"
+
+
+def _family_follow_up_label(event: CareEvent) -> str:
+    if event.staff_status.value == "family_contacted":
+        return "已处理并已联系家属"
+    if event.staff_status.value == "confirmed":
+        return "已处理，将继续关注"
+    if event.staff_status.value == "monitoring":
+        return "将继续关注"
+    if event.staff_status.value == "offline_handled":
+        return "已线下处理"
+    return "等待护理员确认"
 
 
 def _resolve_resident_selection() -> tuple[Resident | None, str, bool]:

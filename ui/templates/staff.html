@@ -16,15 +16,37 @@
         {% if observation %}
           <dl class="event-details">
             <div><dt>老人原话</dt><dd>“{{ observation.raw_quote }}”</dd></div>
-            <div><dt>具体情况</dt><dd>{{ observation.specific_problem }}</dd></div>
-            <div><dt>还需了解</dt><dd><ul>{% for item in observation.missing_information %}<li>{{ item }}</li>{% endfor %}</ul></dd></div>
-            <div><dt>护理检查</dt><dd><ul>{% for item in observation.staff_checklist %}<li>{{ item }}</li>{% endfor %}</ul></dd></div>
-            <div><dt>需要排查</dt><dd><ul>{% for item in observation.red_flag_checks_needed %}<li>{{ item }}</li>{% endfor %}</ul></dd></div>
+            <div><dt>系统理解到的具体情况</dt><dd><strong>{{ observation.specific_problem }}</strong>
+              <ul class="fact-list">
+                {% if observation.body_location %}<li>部位：{{ observation.body_location }}</li>{% endif %}
+                {% if observation.sensation_quality %}<li>感觉：{{ observation.sensation_quality }}</li>{% endif %}
+                {% if observation.time_reference %}<li>时间：{{ observation.time_reference }}</li>{% endif %}
+                {% if observation.triggers_or_context %}<li>相关情境：{{ observation.triggers_or_context | join('、') }}</li>{% endif %}
+                {% if observation.functional_impact %}<li>日常影响：{{ observation.functional_impact }}</li>{% endif %}
+                {% if observation.emotional_context %}<li>情绪情况：{{ observation.emotional_context }}</li>{% endif %}
+              </ul>
+            </dd></div>
+            <div><dt>还需要护理员确认</dt><dd><ul>{% for item in observation.missing_information %}<li>{{ item }}</li>{% endfor %}</ul></dd></div>
+            <div><dt>护理员检查建议</dt><dd>
+              <ul>{% for item in observation.staff_checklist %}<li>{{ item }}</li>{% endfor %}</ul>
+              {% if observation.red_flag_checks_needed %}<p><strong>重点排查：</strong></p><ul>{% for item in observation.red_flag_checks_needed %}<li>{{ item }}</li>{% endfor %}</ul>{% endif %}
+            </dd></div>
+            <div><dt>当前状态</dt><dd>{{ staff_status_label }}</dd></div>
           </dl>
           {% if recommended_staff_handoff %}<div class="notice"><strong>交接建议：</strong>{{ recommended_staff_handoff }}</div>{% endif %}
         {% else %}
           <p>最新记录：{{ latest_event.raw_report }}</p>
         {% endif %}
+        <form class="staff-action-form" method="post" action="{{ url_for('staff_update_event', event_id=latest_event.event_id) }}">
+          <label for="staff_note">护理员备注</label>
+          <textarea id="staff_note" name="staff_note" placeholder="填写已确认的情况或后续安排">{{ latest_event.staff_note }}</textarea>
+          <div class="staff-action-buttons">
+            <button type="submit" name="staff_status" value="confirmed">确认完成</button>
+            <button type="submit" name="staff_status" value="monitoring">继续关注</button>
+            <button type="submit" name="staff_status" value="family_contacted">已联系家属</button>
+            <button class="secondary" type="submit" name="staff_status" value="offline_handled">已线下处理</button>
+          </div>
+        </form>
       </section>
     {% else %}
       <section class="empty-state"><h2>暂无待确认记录</h2><p>老人提交状态后，会显示在这里。</p></section>

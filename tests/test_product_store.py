@@ -77,6 +77,18 @@ def test_staff_confirmation_makes_family_report_ready(monkeypatch, tmp_path) -> 
     assert product_store.update_event_staff_status("event_missing", "confirmed") is None
 
 
+def test_list_all_events_spans_residents(monkeypatch, tmp_path) -> None:
+    _use_temporary_store(monkeypatch, tmp_path)
+    first_resident = product_store.get_demo_resident()
+    second_resident = product_store.create_resident("周阿姨")
+    first = product_store.create_care_event_from_state(CaseState(session_id="all-1"), first_resident.resident_id, "昨晚没睡好")
+    second = product_store.create_care_event_from_state(CaseState(session_id="all-2"), second_resident.resident_id, "肩膀有点酸")
+
+    events = product_store.list_all_events()
+
+    assert {event.event_id for event in events} == {first.event_id, second.event_id}
+
+
 def test_minimal_resident_creation_and_exact_name_lookup(monkeypatch, tmp_path) -> None:
     _use_temporary_store(monkeypatch, tmp_path)
     product_store.get_demo_resident()

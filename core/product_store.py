@@ -204,6 +204,20 @@ def list_events_for_resident(resident_id: str) -> list[CareEvent]:
     return sorted(events, key=lambda event: (event.created_at, event.event_id), reverse=True)
 
 
+def list_all_events() -> list[CareEvent]:
+    """Return all care events ordered newest first."""
+    directory = _events_dir()
+    if not directory.exists():
+        return []
+    events: list[CareEvent] = []
+    for path in directory.glob("*.json"):
+        try:
+            events.append(CareEvent.model_validate_json(path.read_text(encoding="utf-8")))
+        except (OSError, ValueError):
+            continue
+    return sorted(events, key=lambda event: (event.created_at, event.event_id), reverse=True)
+
+
 def get_latest_event_for_resident(resident_id: str) -> CareEvent | None:
     events = list_events_for_resident(resident_id)
     return events[0] if events else None

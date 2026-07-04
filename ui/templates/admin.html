@@ -36,16 +36,20 @@
     </section>
 
     <section class="admin-card" aria-labelledby="event-heading">
-      <h2 id="event-heading">最新状态记录</h2>
-      {% if latest_event %}
-        <dl class="event-details">
-          <div><dt>老人原话</dt><dd class="resident-quote">“{{ latest_event.raw_report }}”</dd></div>
-          <div><dt>创建时间</dt><dd>{{ latest_event.created_at }}</dd></div>
-          <div><dt>当前处理状态</dt><dd>{{ latest_event.staff_status }}</dd></div>
-          <div><dt>是否需要护理员确认</dt><dd>{{ latest_event.needs_staff_confirmation }}</dd></div>
-          <div><dt>家属报告状态</dt><dd>{{ latest_event.family_report_status }}</dd></div>
-          {% if latest_event.staff_note %}<div><dt>护理员备注</dt><dd>{{ latest_event.staff_note }}</dd></div>{% endif %}
-        </dl>
+      <h2 id="event-heading">状态记录</h2>
+      {% if event_rows %}
+        <div class="event-table-wrap">
+          <table class="event-table">
+            <thead><tr><th>老人</th><th>床位</th><th>老人原话</th><th>具体情况</th><th>处理状态</th><th>护理员备注</th><th>家属报告状态</th></tr></thead>
+            <tbody>
+              {% for event in event_rows %}
+                <tr>
+                  <td>{{ event.resident_name }}</td><td>{{ event.room }}</td><td>“{{ event.raw_quote }}”</td><td>{{ event.specific_problem }}</td><td>{{ event.staff_status }}</td><td>{{ event.staff_note }}</td><td>{{ event.family_report_status }}</td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
       {% else %}
         <p class="empty-copy">暂无状态记录。</p>
       {% endif %}

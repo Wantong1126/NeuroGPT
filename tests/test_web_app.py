@@ -102,8 +102,8 @@ def test_admin_page_shows_resident_event_and_workflow_summary(monkeypatch, tmp_p
     for expected in (
         "姓名", "王秀兰", "82岁", "性别", "女", "房间/床位", "203床",
         "示例养老院", "王女士", "关系", "女儿", "睡眠、记忆、行动变化",
-        "老人原话", "今天走路比平时慢一些。", "创建时间", "当前处理状态", "已确认",
-        "是否需要护理员确认", "否", "家属报告状态", "可生成",
+        "状态记录", "老人", "床位", "老人原话", "今天走路比平时慢一些。", "具体情况", "处理状态", "已确认",
+        "家属报告状态", "可生成",
         "护理员备注", "上午已到房间查看，老人精神平稳。",
         "今日记录", "待确认", "已处理", "家属报告可生成",
     ):
@@ -245,13 +245,86 @@ def test_detailed_observation_flows_to_staff_and_confirmed_family(monkeypatch, t
     assert event.observation_extraction["observations"][0]["specific_problem"] == "昨晚睡眠质量不好"
 
     staff_page = client.get("/staff").get_data(as_text=True)
-    for expected in ("老人原话", "昨晚没睡好", "具体情况", "昨晚睡眠质量不好", "还需了解", "护理检查", "需要排查", "交接建议"):
+    for expected in ("老人原话", "昨晚没睡好", "系统理解到的具体情况", "昨晚睡眠质量不好", "还需要护理员确认", "护理员检查建议", "重点排查", "交接建议", "护理员备注", "确认完成", "继续关注"):
         assert expected in staff_page
 
-    product_store.update_event_staff_status(event.event_id, "confirmed")
+    response = client.post(
+        f"/staff/events/{event.event_id}/update",
+        data={"staff_status": "confirmed", "staff_note": "已询问，老人是半夜醒了两次，白天精神尚可。"},
+    )
+    assert response.status_code == 302
+    updated = product_store.get_latest_event_for_resident(resident.resident_id)
+    assert updated is not None
+    assert updated.staff_status.value == "confirmed"
+    assert updated.staff_note == "已询问，老人是半夜醒了两次，白天精神尚可。"
+
     family_page = client.get("/family").get_data(as_text=True)
-    assert "老人反映昨晚睡眠不好，护理员将进一步了解原因和白天精神状态。" in family_page
+    for expected in (
+        "老人原话", "昨晚没睡好", "护理员确认情况", "已询问，老人是半夜醒了两次，白天精神尚可。",
+        "本次状态摘要", "老人反映昨晚睡眠不好，护理员将进一步了解原因和白天精神状态。",
+        "后续安排", "已处理，将继续关注",
+    ):
+        assert expected in family_page
     assert "staff_checklist" not in family_page
+    assert "是入睡困难、半夜醒来、早醒，还是睡得浅" not in family_page
+
+
+def test_staff_page_shows_optional_concrete_observation_fields(monkeypatch, tmp_path) -> None:
+    monkeypatch.setattr(product_store, "PRODUCT_DATA_DIR", tmp_path / ".product_data")
+    resident = product_store.get_demo_resident()
+    state = CaseState(
+        session_id="staff-concrete",
+        observation_extraction={
+            "observations": [{
+                "raw_quote": "我肩膀和背很酸",
+                "specific_problem": "肩膀和背部酸痛",
+                "body_location": "肩膀和背部",
+                "sensation_quality": "酸",
+                "time_reference": "今天早上",
+                "triggers_or_context": ["活动后", "久坐"],
+                "functional_impact": "抬手时不舒服",
+                "emotional_context": "担心影响活动",
+                "missing_information": ["持续多久"],
+                "staff_checklist": ["查看活动范围"],
+                "red_flag_checks_needed": ["胸闷", "气短"],
+            }],
+            "recommended_staff_handoff": "请查看肩背活动和伴随不适。",
+            "recommended_family_summary_after_confirmation": "老人肩背酸痛，护理员已查看。",
+        },
+    )
+    product_store.create_care_event_from_state(state, resident.resident_id, "我肩膀和背很酸")
+    app = create_app()
+    app.config["TESTING"] = True
+    client = app.test_client()
+    client.get("/elder")
+    _select_demo_resident(client)
+
+    page = client.get("/staff").get_data(as_text=True)
+
+    for expected in ("肩膀和背部", "感觉：酸", "时间：今天早上", "相关情境：活动后、久坐", "日常影响：抬手时不舒服", "情绪情况：担心影响活动"):
+        assert expected in page
+
+
+def test_institution_page_lists_events_across_residents(monkeypatch, tmp_path) -> None:
+    monkeypatch.setattr(product_store, "PRODUCT_DATA_DIR", tmp_path / ".product_data")
+    wang = product_store.get_demo_resident()
+    zhou = product_store.create_resident("周阿姨", room="206床")
+    for resident, report, problem in (
+        (wang, "昨晚没睡好", "昨晚睡眠质量不好"),
+        (zhou, "膝盖有点疼", "膝盖疼痛"),
+    ):
+        state = CaseState(
+            session_id=f"admin-{resident.resident_id}",
+            observation_extraction={"observations": [{"raw_quote": report, "specific_problem": problem}]},
+        )
+        product_store.create_care_event_from_state(state, resident.resident_id, report)
+
+    app = create_app()
+    app.config["TESTING"] = True
+    page = app.test_client().get("/admin").get_data(as_text=True)
+
+    for expected in ("王秀兰", "203床", "昨晚没睡好", "昨晚睡眠质量不好", "周阿姨", "206床", "膝盖有点疼", "膝盖疼痛", "护理员备注", "家属报告状态"):
+        assert expected in page
 
 
 def test_switching_resident_starts_a_separate_case_session(monkeypatch, tmp_path) -> None:
