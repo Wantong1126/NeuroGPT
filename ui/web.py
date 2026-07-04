@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import logging
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
@@ -24,12 +25,15 @@ from core.product_store import (
 )
 from core.session import create_session, delete_session, load_session, save_session
 from core.types import CaseState
+from modules.elder_observation_response_renderer import render_elder_observation_response
 from pipeline.orchestrator import run_pipeline
 
 SESSION_KEY = "neurogpt_session_id"
 RESIDENT_KEY = "neurogpt_resident_id"
 IDENTITY_NOTICE_KEY = "neurogpt_identity_notice"
 CHINA_TIMEZONE = timezone(timedelta(hours=8))
+SAFE_ELDER_FALLBACK = "我已经帮您记录下来了，会提醒护理员查看。请您先告诉护理员您现在是否还很不舒服。"
+logger = logging.getLogger(__name__)
 
 STAFF_STATUS_LABELS = {
     "pending_confirmation": "待护理员确认",
@@ -97,9 +101,7 @@ def create_app() -> Flask:
                 ),
             )
         if user_input:
-            state, _output = run_pipeline(state.session_id, user_input, state)
-            save_session(state)
-            create_care_event_from_state(state, resident.resident_id, user_input)
+            state = process_elder_report_turn(state, resident.resident_id, user_input)
         return render_template("elder.html", **_build_elder_view_model(state))
 
     @app.get("/staff")
@@ -150,6 +152,92 @@ def _get_or_create_state() -> CaseState:
     return state
 
 
+def process_elder_report_turn(
+    state: CaseState,
+    resident_id: str,
+    user_input: str,
+) -> CaseState:
+    """Process and persist one elder turn through the active-observation workflow."""
+    used_workflow = "active_observation"
+    original_turn_count = state.turn_count
+    try:
+        state, _output = run_pipeline(state.session_id, user_input, state)
+        if not state.active_observation:
+            raise ValueError("pipeline did not produce an active observation")
+
+        next_question = _active_workflow_question(state)
+        if state.action_level.value in {"emergency_now", "same_day_review"}:
+            response_mode = "urgent"
+        elif not next_question:
+            response_mode = "complete"
+        elif state.active_observation.get("answer_history"):
+            response_mode = "merge"
+        else:
+            response_mode = "initial"
+
+        elder_response = render_elder_observation_response(
+            state.active_observation,
+            user_input,
+            next_question,
+            state.action_level.value,
+            response_mode,
+        )
+    except Exception:
+        used_workflow = "legacy_pipeline"
+        elder_response = SAFE_ELDER_FALLBACK
+        if state.turn_count == original_turn_count:
+            state.add_user_message(user_input)
+
+    state.elder_display_response = elder_response
+    state.user_message = elder_response
+    state.observation_extraction["elder_display_response"] = elder_response
+    _replace_latest_assistant_message(state, elder_response)
+    save_session(state)
+    create_care_event_from_state(state, resident_id, user_input)
+
+    active = state.active_observation
+    logger.info(
+        "route=elder/report used_workflow=%s pending_field=%s specific_problem=%s "
+        "body_location=%s sensation_quality=%s elder_display_response=%s",
+        used_workflow,
+        state.pending_field,
+        active.get("specific_problem", ""),
+        active.get("body_location", ""),
+        active.get("sensation_quality", ""),
+        elder_response[:80],
+    )
+    return state
+
+
+def _active_workflow_question(state: CaseState) -> str | None:
+    question = state.pending_question or state.follow_up_question
+    if not question:
+        return None
+    legacy_generic = (
+        "更像是麻木、没力、动作不灵活，还是感觉变迟钝" in question
+        or all(term in question for term in ("麻木", "没力", "动作不灵活", "感觉迟钝"))
+    )
+    if not legacy_generic:
+        return question
+
+    planned = str(state.active_observation.get("next_best_question") or "").strip()
+    if planned and not all(term in planned for term in ("麻木", "没力", "动作不灵活", "感觉迟钝")):
+        question = planned
+    else:
+        question = "这个情况是今天刚出现的吗？现在有没有比刚开始更严重？"
+    state.follow_up_question = question
+    if state.pending_question:
+        state.pending_question = question
+    return question
+
+
+def _replace_latest_assistant_message(state: CaseState, response: str) -> None:
+    if state.conversation_history and state.conversation_history[-1].role == "assistant":
+        state.conversation_history[-1].content = response
+    else:
+        state.add_assistant_message(response)
+
+
 def _build_elder_view_model(
     state: CaseState,
     identity_error: str = "",
@@ -162,8 +250,12 @@ def _build_elder_view_model(
     if selected_resident and all(item.resident_id != selected_resident.resident_id for item in residents):
         residents.append(selected_resident)
     return {
-        "messages": [message.model_dump() for message in state.conversation_history],
-        "assistant_output": state.user_message,
+        "messages": [
+            message.model_dump()
+            for message in state.conversation_history
+            if message.role == "user"
+        ],
+        "elder_display_response": state.elder_display_response,
         "needs_follow_up": state.needs_follow_up_question,
         "residents": residents,
         "selected_resident": selected_resident,

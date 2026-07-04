@@ -249,6 +249,7 @@ class CaseState(BaseModel):
     plain_language_rationale: str = ""
     why_not_normal_ageing: str = ""
     user_message: str = ""
+    elder_display_response: str = ""
     caregiver_summary: Optional[str] = None
 
     # Conversation history (lightweight, for multi-turn)

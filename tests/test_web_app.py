@@ -4,7 +4,8 @@ from __future__ import annotations
 from core import product_store
 from core.session import delete_session, load_session
 from core.types import CaseState
-from ui.web import create_app
+from ui import web
+from ui.web import SAFE_ELDER_FALLBACK, create_app
 
 
 def _select_demo_resident(client) -> None:
@@ -153,6 +154,62 @@ def test_flask_route_persists_case_state_across_requests(monkeypatch, tmp_path) 
     assert events[0].raw_report == "started suddenly this morning with slurred speech"
 
     delete_session(session_id)
+
+
+def test_real_elder_route_renders_active_observation_responses(monkeypatch, tmp_path) -> None:
+    monkeypatch.setattr(product_store, "PRODUCT_DATA_DIR", tmp_path / ".product_data")
+    app = create_app()
+    app.config["TESTING"] = True
+    client = app.test_client()
+    client.get("/elder")
+    _select_demo_resident(client)
+
+    shoulder_html = client.post(
+        "/elder/report",
+        data={"user_input": "我肩膀和背很酸"},
+    ).get_data(as_text=True)
+    assert any(reason in shoulder_html for reason in ("睡姿", "久坐", "肌肉酸痛", "受凉"))
+    for legacy_text in ("麻木、没力、动作不灵活", "感觉迟钝"):
+        assert legacy_text not in shoulder_html
+
+    client.post("/reset")
+    client.get("/elder")
+    first_html = client.post(
+        "/elder/report",
+        data={"user_input": "我早上起来突然肚子非常痛"},
+    ).get_data(as_text=True)
+    assert "肚子具体哪个位置最痛" in first_html
+    assert "肚子突然明显疼痛" in first_html
+
+    second_html = client.post("/elder/report", data={"user_input": "上腹"}).get_data(as_text=True)
+    assert "上腹不舒服" in second_html
+    assert "更像是痛、胀、绞着痛" in second_html
+
+    third_html = client.post("/elder/report", data={"user_input": "痛和胀"}).get_data(as_text=True)
+    assert "上腹痛和胀" in third_html
+    assert "持续多久" in third_html
+    assert "哪里痛和胀" not in third_html
+
+    with client.session_transaction() as flask_session:
+        saved = load_session(flask_session["neurogpt_session_id"])
+    assert saved is not None
+    assert saved.elder_display_response in third_html
+    assert saved.observation_extraction["elder_display_response"] == saved.elder_display_response
+
+
+def test_elder_route_uses_safe_fallback_not_legacy_question(monkeypatch, tmp_path) -> None:
+    monkeypatch.setattr(product_store, "PRODUCT_DATA_DIR", tmp_path / ".product_data")
+    monkeypatch.setattr(web, "run_pipeline", lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("failed")))
+    app = create_app()
+    app.config["TESTING"] = True
+    client = app.test_client()
+    client.get("/elder")
+    _select_demo_resident(client)
+
+    html = client.post("/elder/report", data={"user_input": "我肩膀疼"}).get_data(as_text=True)
+
+    assert SAFE_ELDER_FALLBACK in html
+    assert "麻木、没力、动作不灵活" not in html
 
 
 def test_report_waits_for_resident_identity_before_pipeline(monkeypatch, tmp_path) -> None:

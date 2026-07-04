@@ -48,11 +48,24 @@
         {% if messages %}
           <div class="transcript" aria-label="状态记录对话">
             {% for message in messages %}
-              <article class="turn {{ 'user-turn' if message.role == 'user' else 'assistant-turn' }}">
-                <div class="turn-label">{{ '我' if message.role == 'user' else 'NeuroGPT' }}</div>
+              <article class="turn user-turn">
+                <div class="turn-label">我</div>
                 <div class="turn-body">{{ message.content }}</div>
               </article>
             {% endfor %}
+            {% if elder_display_response %}
+              <article class="turn assistant-turn">
+                <div class="turn-label">NeuroGPT</div>
+                <div class="turn-body">{{ elder_display_response }}</div>
+              </article>
+            {% endif %}
+          </div>
+        {% elif elder_display_response %}
+          <div class="transcript" aria-label="状态记录对话">
+            <article class="turn assistant-turn">
+              <div class="turn-label">NeuroGPT</div>
+              <div class="turn-body">{{ elder_display_response }}</div>
+            </article>
           </div>
         {% endif %}
 
